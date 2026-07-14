@@ -38,11 +38,23 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 
 **빌드**
 ```bash
-git clone <이 저장소 URL>
-cd pet-app
+git clone https://github.com/stux12/Dev_Pet.git
+cd Dev_Pet
 npm install
-npm run tauri build     # → src-tauri/target/release/ 에 exe + MSI 생성
+npm run tauri build
 ```
+
+**빌드 결과물 위치** (프로젝트 폴더 기준)
+
+| 파일 | 경로 | 용도 |
+|------|------|------|
+| 실행 파일 | `src-tauri/target/release/dev-pet.exe` | 설치 없이 **바로 실행** |
+| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.1.0_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
+
+- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.1.0_x64_en-US.msi`
+- 파일 탐색기 주소창에 `src-tauri\target\release\bundle\msi` 를 붙여넣으면 해당 폴더가 열립니다.
+- ⚠️ `target/` 폴더는 `.gitignore`로 **저장소에는 포함되지 않습니다.** 각자 `npm run tauri build`로 생성하세요.
+- 다른 PC에 배포하려면 **`.msi` 파일 하나만** 넘겨주면 됩니다.
 
 **개발 모드로 실행**
 ```bash
