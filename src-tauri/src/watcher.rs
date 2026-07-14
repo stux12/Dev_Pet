@@ -378,6 +378,11 @@ fn process_codex_line(app: &AppHandle, st: &mut FState, v: &Value) {
         }
         st.codex_notified = turn_id;
         let msg = payload["last_agent_message"].as_str().unwrap_or("");
+        let mt = msg.trim_start();
+        // 실제 완료 메시지가 아니면(빈 값 / 승인 판정 JSON 등) 알림 안 함
+        if mt.is_empty() || mt.starts_with('{') {
+            return;
+        }
         let title = if st.codex_title.is_empty() {
             "Codex 작업".to_string()
         } else {
@@ -471,7 +476,9 @@ fn is_noise(t: &str) -> bool {
     let s = t.trim_start();
     s.is_empty()
         || s.starts_with('<') // <environment_context>, <user_instructions> 등
+        || s.starts_with('{') // JSON(승인 판정 등)
         || s.starts_with("You are ")
+        || s.starts_with("The following") // Codex 에이전트/시스템 프롬프트
         || s.contains("environment_context")
         || s.contains("helpful assistant")
         || s.starts_with("[external_agent") // 도구 호출/결과
