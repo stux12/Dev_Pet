@@ -163,7 +163,8 @@ try {
 } catch (e) {
   notifs = [];
 }
-let unread = 0;
+// 재시작 시엔 기존 알림을 모두 읽음 처리(배지는 앱 실행 후 새로 온 것만 셈)
+notifs.forEach((n) => { n.read = true; });
 
 function saveNotifs() {
   notifs = notifs.slice(-MAX_NOTIFS);
@@ -180,6 +181,8 @@ function iconOf(source) {
   return source === "claude" ? "🟠" : source === "codex" ? "🟢" : "🔔";
 }
 function updateBadge() {
+  // 배지 = 안 읽은 알림 개수 (리스트 항목 기준이라 채팅별 dedup과 항상 일치)
+  const unread = notifs.filter((n) => !n.read).length;
   const badge = $("bell-badge");
   const bell = $("bell-btn");
   if (unread > 0) {
@@ -228,12 +231,10 @@ function addNotif(d) {
     detail: (d.detail || "").trim(),
     hwnd: d.hwnd || 0,
     ts: Date.now(),
+    read: view === "list", // 리스트를 보고 있으면 바로 읽음 처리
   });
   saveNotifs();
-  if (view !== "list") {
-    unread++;
-    updateBadge();
-  }
+  updateBadge(); // 배지는 안 읽은 항목 수로 자동 계산(중복 카운트 없음)
   renderList();
 }
 
@@ -271,7 +272,8 @@ async function setView(v) {
   const [w, h] = SIZE[v] || SIZE.collapsed;
   await win.setSize(new LogicalSize(w, h));
   if (v === "list") {
-    unread = 0;
+    notifs.forEach((n) => { n.read = true; }); // 리스트 열면 모두 읽음
+    saveNotifs();
     updateBadge();
     renderList();
   }
@@ -348,6 +350,7 @@ $("clear-btn").addEventListener("click", (ev) => {
   ev.stopPropagation();
   notifs = [];
   saveNotifs();
+  updateBadge();
   renderList();
 });
 /* ─────────────── × 종료 선택 (백그라운드 유지 / 완전 종료) ─────────────── */
