@@ -16,7 +16,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 const POLL_MS: u64 = 1200;
 const RECENT_SECS: u64 = 60; // 최근 이만큼 수정된 파일만 처리
 const CLAUDE_QUIET: u32 = 1; // 완료 후보가 이만큼 안정되면 알림(스트리밍 오탐 방지)
-const APPROVAL_QUIET: u32 = 12; // 도구 호출 후 이만큼(≈14초) 결과 없으면 '승인 필요' 추정(생각/처리중 오탐 방지)
+const APPROVAL_QUIET: u32 = 16; // 도구 호출 후 이만큼(≈19초) 결과 없으면 '승인 필요' 추정(자동실행 오탐 여유↑)
 const TAIL_BYTES: u64 = 512 * 1024; // 최초 목격 시 훑을 꼬리 크기
 
 static START: OnceLock<OffsetDateTime> = OnceLock::new();
@@ -347,7 +347,8 @@ fn process_claude_line(st: &mut FState, v: &Value) {
             st.pending_tool = false; // tool_result 도착 = 승인/실행됨
         }
         Some("assistant") => {
-            let (text, has_tool, tool_desc) = assistant_content(&v["message"]["content"]);
+            let (text, has_tool, tool_desc, has_sensitive) =
+                assistant_content(&v["message"]["content"]);
             if !text.is_empty() {
                 st.last_assistant = text.clone();
             }
@@ -359,9 +360,9 @@ fn process_claude_line(st: &mut FState, v: &Value) {
             st.tail_candidate = !text.is_empty() && !has_tool;
             st.cand_ts = ts.clone();
             st.cand_marker = marker.clone();
-            // 마지막이 도구호출이면 승인 대기 후보
-            st.pending_tool = has_tool;
-            if has_tool {
+            // 승인 대기 후보: 마지막이 '권한 필요' 도구호출일 때만 (읽기전용 도구 오탐 제외)
+            st.pending_tool = has_tool && has_sensitive;
+            if st.pending_tool {
                 st.pending_marker = marker;
                 st.pending_ts = ts;
                 st.pending_detail = tool_desc;
@@ -423,12 +424,23 @@ fn process_codex_line(app: &AppHandle, st: &mut FState, v: &Value) {
     }
 }
 
-fn assistant_content(content: &Value) -> (String, bool, String) {
+/// 승인(권한 확인)이 흔히 필요한 도구인지. 읽기 전용/자동 실행 도구는 제외해
+/// '승인 대기' 오탐(느린 Read/Grep 등)을 줄인다. 알 수 없는 도구는 승인 대상에서 제외(노이즈 최소화).
+fn is_approval_tool(name: &str) -> bool {
+    const APPROVAL_TOOLS: &[&str] = &[
+        "Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch",
+    ];
+    APPROVAL_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name))
+}
+
+/// content → (텍스트, 도구호출 있음, 첫 도구 요약, 권한필요 도구 포함)
+fn assistant_content(content: &Value) -> (String, bool, String, bool) {
     if let Some(s) = content.as_str() {
-        return (s.to_string(), false, String::new());
+        return (s.to_string(), false, String::new(), false);
     }
     let mut text = String::new();
     let mut has_tool = false;
+    let mut has_sensitive = false;
     let mut tool_desc = String::new();
     if let Some(arr) = content.as_array() {
         for p in arr {
@@ -443,6 +455,9 @@ fn assistant_content(content: &Value) -> (String, bool, String) {
                 }
                 Some("tool_use") => {
                     has_tool = true;
+                    if is_approval_tool(p["name"].as_str().unwrap_or("")) {
+                        has_sensitive = true;
+                    }
                     if tool_desc.is_empty() {
                         tool_desc = tool_brief(p);
                     }
@@ -451,7 +466,7 @@ fn assistant_content(content: &Value) -> (String, bool, String) {
             }
         }
     }
-    (text, has_tool, tool_desc)
+    (text, has_tool, tool_desc, has_sensitive)
 }
 
 /// tool_use → "도구명: 주요인자" (승인 알림 상세용)

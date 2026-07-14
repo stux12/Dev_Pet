@@ -26,7 +26,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 ### 방법 A — 설치 파일로 실행 (권장, 가장 간단)
 
 릴리스: https://github.com/stux12/Dev_Pet/releases/latest
-1. `DevPet_0.1.3_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
+1. `DevPet_0.1.4_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
 2. 시작 메뉴에서 **DevPet** 실행
 
 ### 방법 B — 소스에서 빌드
@@ -50,9 +50,9 @@ npm run tauri build
 | 파일 | 경로 | 용도 |
 |------|------|------|
 | 실행 파일 | `src-tauri/target/release/dev-pet.exe` | 설치 없이 **바로 실행** |
-| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.1.3_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
+| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.1.4_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
 
-- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.1.3_x64_en-US.msi`
+- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.1.4_x64_en-US.msi`
 - 파일 탐색기 주소창에 `src-tauri\target\release\bundle\msi` 를 붙여넣으면 해당 폴더가 열립니다.
 - ⚠️ `target/` 폴더는 `.gitignore`로 **저장소에는 포함되지 않습니다.** 각자 `npm run tauri build`로 생성하세요.
 - 다른 PC에 배포하려면 **`.msi` 파일 하나만** 넘겨주면 됩니다.
@@ -118,7 +118,7 @@ $sc.Save()
 
 - **Claude**: `%USERPROFILE%\.claude\projects\*\*.jsonl` — 마지막이 '도구호출 없는 assistant 텍스트'면 완료. 제목은 대화창 이름.
 - **Codex**: `%USERPROFILE%\.codex\sessions\**\*.jsonl` — `task_complete` 이벤트 감지.
-- **승인 필요(best-effort)**: 마지막이 도구호출(tool_use)이고 결과 없이 ~5초 조용하면 추정 알림.
+- **승인 필요(best-effort)**: 마지막이 **권한 필요 도구**(Bash·Write·Edit 등)의 호출이고 결과 없이 ~19초 조용하면 추정 알림. 읽기전용 도구(Read·Grep·Glob 등)는 제외.
 - 앱 시작 이후의 완료만 알림(과거 것 무시). 감지까지 약 1~2초.
 
 > **왜 훅이 아니라 감시?** Claude Code **데스크탑 앱은 command 훅을 실행하지 않기** 때문입니다(CLI만 실행). 파일 감시는 둘 다 커버합니다.
@@ -167,6 +167,10 @@ MIT
 ## 🗒️ 업데이트 이력
 
 > 커밋이 있을 때마다 무엇을 바꿨는지 여기에 간략히 기록합니다. (최신순)
+
+### 2026-07-15 · v0.1.4
+- **시스템 트레이 아이콘 추가** — 백그라운드로 숨겨도 **트레이 아이콘 클릭**으로 펫을 다시 열 수 있습니다(우클릭 메뉴: 펫 보이기 / 완전 종료). 이전엔 재실행해야 보였음.
+- **승인 감지 정확도 개선** — transcript에 명시적 승인 마커가 없어, **권한이 필요한 도구(Bash·Write·Edit·MultiEdit·NotebookEdit·WebFetch)** 로 대기 중일 때만 '승인 필요'로 판단(읽기전용 Read·Grep·Glob 등의 오탐 제외) + 대기 임계값을 ≈19초로 상향.
 
 ### 2026-07-15 · v0.1.3
 - **알림 배지 카운트 수정** — 같은 채팅의 새 알림이 오면 리스트는 최신 1건만 남는데 종(🔔) 배지 숫자는 계속 늘어나던 문제 수정. 이제 배지는 **안 읽은 리스트 항목 수**와 항상 일치합니다.

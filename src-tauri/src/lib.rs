@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 use sysinfo::{Disks, System};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Diagnostics::Debug::Beep;
@@ -70,6 +72,47 @@ fn set_mute(muted: bool) {
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
+}
+
+/// 숨겨진 펫 창을 다시 보이게 (트레이 클릭/메뉴에서 호출)
+fn show_pet(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// 시스템 트레이 아이콘 구성: 좌클릭=펫 보이기, 우클릭 메뉴=보이기/완전 종료
+fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let show_i = MenuItem::with_id(app, "tray_show", "펫 보이기", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "tray_quit", "완전 종료", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+
+    let mut builder = TrayIconBuilder::with_id("devpet-tray")
+        .tooltip("DevPet — 클릭하면 펫이 나타나요")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "tray_show" => show_pet(app),
+            "tray_quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_pet(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
+    Ok(())
 }
 
 /// 알림에 연결된 창(작업하던 세션)을 앞으로 가져오기.
@@ -317,6 +360,7 @@ pub fn run() {
         }))
         .setup(|app| {
             let handle = app.handle().clone();
+            setup_tray(&handle)?; // 시스템 트레이(백그라운드에서 다시 열기)
             spawn_metrics_loop(handle.clone());
             spawn_notify_server(handle.clone());
             // Claude Code(CLI+데스크탑) / Codex 대화 기록을 감시해 완료 감지 (훅 불필요)
