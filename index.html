@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DevPet</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- 말풍선: 항상 최신 알림 1개 (클릭 시 해당 세션 포커스) -->
+      <div id="bubble-wrap">
+        <div id="bubble" class="bubble hidden">
+          <span id="bubble-text">안녕! 👋</span>
+        </div>
+      </div>
+
+      <!-- 펫 캐릭터: 클릭=상태 패널 토글, 드래그=이동 -->
+      <div id="pet-slot">
+      <div id="pet" class="pet">
+        <svg id="pet-svg" viewBox="0 0 120 120" width="120" height="120" xmlns="http://www.w3.org/2000/svg">
+          <ellipse id="body" cx="60" cy="66" rx="42" ry="40" fill="#3ec6b4" />
+          <circle cx="38" cy="74" r="7" fill="#ff9db0" opacity="0.7" />
+          <circle cx="82" cy="74" r="7" fill="#ff9db0" opacity="0.7" />
+          <path id="sweat" d="M96 44 q-5 8 0 12 q6 -1 4 -8 z" fill="#7ec8ff" />
+          <g id="eyes">
+            <ellipse class="eye" cx="47" cy="58" rx="6" ry="8" fill="#1b2b3a" />
+            <ellipse class="eye" cx="73" cy="58" rx="6" ry="8" fill="#1b2b3a" />
+            <circle cx="49" cy="55" r="2" fill="#fff" />
+            <circle cx="75" cy="55" r="2" fill="#fff" />
+          </g>
+          <!-- 충돌 시 >< 찡끗 표정 (기본 숨김) -->
+          <g id="wince-eyes">
+            <polyline points="42,50 54,58 42,66" fill="none" stroke="#1b2b3a" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" />
+            <polyline points="78,50 66,58 78,66" fill="none" stroke="#1b2b3a" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" />
+          </g>
+          <path id="mouth" d="M50 78 Q60 86 70 78" stroke="#1b2b3a" stroke-width="2.5" fill="none" stroke-linecap="round" />
+        </svg>
+      </div>
+      </div>
+
+      <!-- 상태 패널 (펫 클릭 시 토글) -->
+      <div id="panel" class="panel hidden">
+        <div class="metric">
+          <div class="metric-head"><span>CPU</span><span id="cpu-val">--%</span></div>
+          <div class="bar"><div id="cpu-bar" class="bar-fill"></div></div>
+        </div>
+        <div class="metric">
+          <div class="metric-head"><span>메모리</span><span id="mem-val">--%</span></div>
+          <div class="bar"><div id="mem-bar" class="bar-fill"></div></div>
+        </div>
+        <div class="metric">
+          <div class="metric-head"><span>디스크</span><span id="disk-val">--%</span></div>
+          <div class="bar"><div id="disk-bar" class="bar-fill"></div></div>
+        </div>
+        <div class="links">
+          <button class="link-btn claude" data-url="https://claude.ai/settings/usage">Claude 사용량</button>
+          <button class="link-btn codex" data-url="https://platform.openai.com/usage">Codex 사용량</button>
+        </div>
+      </div>
+
+      <!-- 알림 리스트 (종 아이콘 클릭 시 토글) -->
+      <div id="notif-list" class="panel notif-list hidden">
+        <div class="notif-head">
+          <span>알림</span>
+          <div class="notif-actions">
+            <button id="mute-btn" title="알림 소리 켜기/끄기">🔊</button>
+            <button id="game-btn" title="탱탱볼 모드 (더블클릭으로 종료)">🎮</button>
+            <button id="discord-btn" title="디스코드 알림 설정">
+              <svg viewBox="0 0 127.14 96.36" width="16" height="13" aria-hidden="true"><path fill="#5865F2" d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>
+            </button>
+            <button id="clear-btn" title="모두 지우기">🗑️</button>
+          </div>
+        </div>
+        <!-- 디스코드 웹훅 설정 -->
+        <div id="discord-settings" class="discord-settings hidden">
+          <div class="ds-title">🔗 디스코드 웹훅 URL</div>
+          <input id="discord-url" type="text" spellcheck="false" placeholder="https://discord.com/api/webhooks/..." />
+          <div class="ds-row">
+            <button id="discord-save" class="ds-btn save">저장</button>
+            <button id="discord-test" class="ds-btn test">테스트</button>
+          </div>
+          <div id="discord-status" class="ds-status"></div>
+          <div class="ds-help">디스코드 서버 설정 → 연동 → 웹후크 → 새 웹후크 → URL 복사</div>
+        </div>
+        <div id="notif-items" class="notif-items"></div>
+        <div id="notif-empty" class="notif-empty">받은 알림이 없어요</div>
+      </div>
+
+      <!-- 종 아이콘 (알림 리스트 열기) -->
+      <button id="bell-btn" title="알림 목록">
+        🔔<span id="bell-badge" class="badge hidden">0</span>
+      </button>
+      <!-- 숨기기 -->
+      <button id="close-btn" title="숨기기">×</button>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

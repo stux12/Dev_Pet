@@ -1,0 +1,13 @@
+# deps / build outputs
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# generated / logs / temp
+icon.png
+*.log
+_*
+
+# prebuilt binaries (빌드로 생성; 소스는 src-tauri/src/bin/codex-forward.rs)
+hooks/*.exe
