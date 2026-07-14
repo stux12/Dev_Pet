@@ -11,6 +11,7 @@ const SIZE = {
   panel: [260, 320],
   list: [260, 456],
   listDiscord: [260, 580], // 디스코드 설정 폼 펼쳤을 때
+  closeMenu: [252, 338], // × 종료 선택 메뉴 (패널 top:170 기준 아래로 충분히)
 };
 
 function getVar(name) {
@@ -86,7 +87,7 @@ $("bubble").addEventListener("click", () => {
 // 생각하는 표정 + "감지 중" 문구를 띄우고, 스캔이 끝나면 준비 완료 문구로 전환.
 let scanning = true;
 let scanDone = false;
-const SCAN_MIN_MS = 1800; // 너무 빨리 끝나도 최소 이만큼은 로딩을 보여줌
+const SCAN_MIN_MS = 2200; // 너무 빨리 끝나도 최소 이만큼은 생각하는 로딩을 보여줌
 const scanStart = Date.now();
 function beginScan() {
   $("pet-svg").classList.add("thinking");
@@ -103,7 +104,13 @@ function finishScan(info) {
     if (info && info.claude) found.push("Claude");
     if (info && info.codex) found.push("Codex");
     const who = found.length ? `(${found.join(" · ")} 기록 감지) ` : "";
-    showBubble(`감지 완료! ${who}이제 정상적으로 사용할 수 있어요 ✅`, 4000);
+    showBubble(`감지 완료! ${who}이제 정상적으로 사용할 수 있어요 ✅`, 3800);
+    // 스캔이 끝난 뒤에야 사용 소개를 보여준다 (실행 직후엔 안 나오도록)
+    setTimeout(() => {
+      if (view === "collapsed" && !closeMenuOpen) {
+        showBubble("클릭하면 상태를, 🔔로 알림을 볼 수 있어요! 🐾", 4500);
+      }
+    }, 4200);
   }, wait);
 }
 beginScan();
@@ -343,9 +350,45 @@ $("clear-btn").addEventListener("click", (ev) => {
   saveNotifs();
   renderList();
 });
-$("close-btn").addEventListener("click", async (ev) => {
+/* ─────────────── × 종료 선택 (백그라운드 유지 / 완전 종료) ─────────────── */
+let closeMenuOpen = false;
+async function openCloseMenu() {
+  closeMenuOpen = true;
+  hideBubble();
+  // 다른 뷰는 닫고 메뉴만 표시
+  $("panel").classList.add("hidden");
+  $("notif-list").classList.add("hidden");
+  $("discord-settings").classList.add("hidden");
+  $("close-menu").classList.remove("hidden");
+  await win.setSize(new LogicalSize(...SIZE.closeMenu));
+}
+async function closeCloseMenu() {
+  closeMenuOpen = false;
+  $("close-menu").classList.add("hidden");
+  view = "collapsed";
+  await win.setSize(new LogicalSize(...SIZE.collapsed));
+}
+$("close-btn").addEventListener("click", (ev) => {
   ev.stopPropagation();
+  if (closeMenuOpen) { closeCloseMenu(); return; }
+  openCloseMenu();
+});
+$("cm-cancel").addEventListener("click", (ev) => {
+  ev.stopPropagation();
+  closeCloseMenu();
+});
+$("cm-bg").addEventListener("click", async (ev) => {
+  ev.stopPropagation();
+  // 백그라운드 유지: 창만 숨김(프로세스·알림 감시는 계속). 다음에 다시 보이면 접힌 상태로.
+  $("close-menu").classList.add("hidden");
+  closeMenuOpen = false;
+  view = "collapsed";
+  await win.setSize(new LogicalSize(...SIZE.collapsed));
   await win.hide();
+});
+$("cm-quit").addEventListener("click", async (ev) => {
+  ev.stopPropagation();
+  await invoke("quit_app"); // 프로세스 완전 종료
 });
 
 /* ─────────────── 탱탱볼 물리 모드 ─────────────── */
@@ -535,4 +578,4 @@ view = "collapsed";
 applyMute();
 updateBadge();
 renderList();
-setTimeout(() => showBubble("클릭하면 상태를, 🔔로 알림을 볼 수 있어요! 🐾", 4500), 600);
+// 사용 소개 말풍선은 스캔 완료 후에 표시됨 (finishScan 참고)

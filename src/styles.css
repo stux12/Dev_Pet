@@ -146,17 +146,47 @@ body.physics .pet:active { cursor: grabbing; }
 #pet-svg.wince #eyes { display: none; }
 #pet-svg.wince #wince-eyes { display: block; }
 
-/* 감지 중(로딩) 생각하는 표정: 눈을 살짝 위로, 머리 위 점 통통 */
+/* 감지 중(로딩) 생각하는 표정: 눈을 위로 곁눈질, 머리 갸웃, 점→물음표 순차 등장 */
 #think-dots { display: none; }
 #pet-svg.thinking #think-dots { display: block; }
-#pet-svg.thinking #eyes { transform: translateY(-3px); transform-origin: center; }
-#pet-svg.thinking #think-dots circle { animation: thinkBounce 1.2s ease-in-out infinite; }
-#pet-svg.thinking #think-dots circle:nth-child(2) { animation-delay: 0.18s; }
-#pet-svg.thinking #think-dots circle:nth-child(3) { animation-delay: 0.36s; }
-@keyframes thinkBounce {
-  0%, 100% { opacity: 0.25; transform: translateY(0); }
-  50% { opacity: 1; transform: translateY(-3px); }
+#pet-svg.thinking #eyes { transform: translate(2px, -3px); transform-origin: center; }
+#pet-svg.thinking { animation: ponder 2.6s ease-in-out infinite; transform-origin: 60px 100px; }
+@keyframes ponder {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(4deg); }
 }
+/* 점 두 개 → 물음표 순서로 반짝이며 떠오름 */
+#pet-svg.thinking #think-dots > * { animation: thinkPulse 1.5s ease-in-out infinite; }
+#pet-svg.thinking #think-dots > *:nth-child(2) { animation-delay: 0.2s; }
+#pet-svg.thinking #think-q { animation: thinkQ 1.5s ease-in-out infinite; animation-delay: 0.4s; transform-origin: 99px 14px; }
+@keyframes thinkPulse {
+  0%, 100% { opacity: 0.2; transform: translateY(2px); }
+  50% { opacity: 1; transform: translateY(0); }
+}
+@keyframes thinkQ {
+  0%, 100% { opacity: 0.35; transform: translateY(2px) rotate(-8deg); }
+  50% { opacity: 1; transform: translateY(-1px) rotate(8deg); }
+}
+
+/* ── 종료 선택 메뉴 ── */
+.close-menu { gap: 8px; align-items: stretch; text-align: center; }
+.cm-title { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+.cm-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 9px 10px; border: none; border-radius: 10px; cursor: pointer;
+  background: rgba(62, 198, 180, 0.16); color: inherit;
+  transition: background 0.15s;
+}
+.cm-btn:hover { background: rgba(62, 198, 180, 0.3); }
+.cm-btn.quit { background: rgba(255, 107, 107, 0.16); }
+.cm-btn.quit:hover { background: rgba(255, 107, 107, 0.32); }
+.cm-main { font-weight: 600; font-size: 13px; }
+.cm-sub { font-size: 10.5px; opacity: 0.7; }
+.cm-cancel {
+  background: none; border: none; cursor: pointer;
+  color: inherit; opacity: 0.6; font-size: 12px; padding: 2px;
+}
+.cm-cancel:hover { opacity: 1; }
 
 /* ── 상태 패널 / 알림 리스트 (펫 아래 고정 위치) ── */
 .panel {

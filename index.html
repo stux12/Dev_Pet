@@ -29,11 +29,11 @@
             <circle cx="49" cy="55" r="2" fill="#fff" />
             <circle cx="75" cy="55" r="2" fill="#fff" />
           </g>
-          <!-- 감지 중(로딩) 생각 점 — 머리 위에서 통통 (기본 숨김) -->
+          <!-- 감지 중(로딩) 생각 표정 — 머리 위로 점이 올라가며 물음표 (기본 숨김) -->
           <g id="think-dots">
-            <circle cx="50" cy="18" r="2.6" fill="#1b2b3a" />
-            <circle cx="60" cy="14" r="3.2" fill="#1b2b3a" />
-            <circle cx="70" cy="18" r="2.6" fill="#1b2b3a" />
+            <circle cx="80" cy="30" r="2.1" fill="#1b2b3a" />
+            <circle cx="88" cy="23" r="2.7" fill="#1b2b3a" />
+            <text id="think-q" x="99" y="20" text-anchor="middle" font-size="19" font-weight="700" fill="#1b2b3a">?</text>
           </g>
           <!-- 충돌 시 >< 찡끗 표정 (기본 숨김) -->
           <g id="wince-eyes">
@@ -91,6 +91,20 @@
         </div>
         <div id="notif-items" class="notif-items"></div>
         <div id="notif-empty" class="notif-empty">받은 알림이 없어요</div>
+      </div>
+
+      <!-- 종료 선택 메뉴 (× 클릭 시) -->
+      <div id="close-menu" class="panel close-menu hidden">
+        <div class="cm-title">어떻게 종료할까요?</div>
+        <button id="cm-bg" class="cm-btn">
+          <span class="cm-main">🌙 백그라운드로 유지</span>
+          <span class="cm-sub">숨기지만 알림은 계속 받아요</span>
+        </button>
+        <button id="cm-quit" class="cm-btn quit">
+          <span class="cm-main">⏹ 완전 종료</span>
+          <span class="cm-sub">프로세스를 끄고 알림도 중지</span>
+        </button>
+        <button id="cm-cancel" class="cm-cancel">취소</button>
       </div>
 
       <!-- 종 아이콘 (알림 리스트 열기) -->

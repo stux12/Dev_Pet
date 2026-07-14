@@ -66,6 +66,12 @@ fn set_mute(muted: bool) {
     MUTED.store(muted, Ordering::Relaxed);
 }
 
+/// 앱을 완전히 종료 (백그라운드 유지가 아니라 프로세스 자체를 끔)
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 /// 알림에 연결된 창(작업하던 세션)을 앞으로 가져오기.
 /// Windows의 포그라운드 잠금을 우회하려고 AttachThreadInput 기법 사용.
 #[tauri::command]
@@ -320,6 +326,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_url,
             set_mute,
+            quit_app,
             focus_window,
             set_discord_webhook,
             test_discord
