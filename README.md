@@ -25,6 +25,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 
 ### 방법 A — 설치 파일로 실행 (권장, 가장 간단)
 
+릴리스: https://github.com/stux12/Dev_Pet/releases/tag/v0.1.0
 1. `DevPet_0.1.0_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
 2. 시작 메뉴에서 **DevPet** 실행
 
