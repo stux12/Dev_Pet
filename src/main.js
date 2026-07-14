@@ -171,12 +171,7 @@ function renderList() {
     time.textContent = relTime(n.ts);
     title.append(left, time);
     el.appendChild(title);
-    if (n.detail) {
-      const d = document.createElement("div");
-      d.className = "n-detail";
-      d.textContent = n.detail;
-      el.appendChild(d);
-    }
+    // 세부내용은 표시하지 않음 (제목 + 상태만 간단히)
     el.addEventListener("click", () => {
       if (n.hwnd) invoke("focus_window", { hwnd: n.hwnd });
     });
@@ -217,9 +212,7 @@ listen("task-done", (e) => {
     ms = 10000;
     tone = "";
   }
-  if (d.detail && d.detail.trim() && d.detail.trim() !== title) {
-    text += `\n${d.detail.trim()}`;
-  }
+  // 세부내용은 표시하지 않음 (제목 + 상태만 간단히)
   showBubble(text, ms, tone, d.hwnd || 0);
   addNotif(d);
 });

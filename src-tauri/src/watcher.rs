@@ -44,6 +44,7 @@ struct FState {
     pending_quiet: u32,
     approval_notified: String,
     // Codex
+    codex_id: String, // 세션 UUID (파일명에서 추출)
     codex_title: String,
     codex_notified: String,
 }
@@ -120,6 +121,9 @@ fn process(app: &AppHandle, path: &Path, is_codex: bool, st: &mut FState) {
 
     let lines: Vec<String> = if !st.initialized {
         st.initialized = true;
+        if is_codex {
+            st.codex_id = session_id_from_path(path);
+        }
         // 제목은 head에서, 최근 완료는 꼬리에서 (타임스탬프로 과거 완료는 걸러짐)
         let head = read_head(path, 65536);
         load_titles(&head, is_codex, st);
@@ -383,11 +387,17 @@ fn process_codex_line(app: &AppHandle, st: &mut FState, v: &Value) {
         if mt.is_empty() || mt.starts_with('{') {
             return;
         }
-        let title = if st.codex_title.is_empty() {
-            "Codex 작업".to_string()
-        } else {
-            st.codex_title.clone()
-        };
+        // 제목 우선순위: 사용자가 설정한 스레드 제목 > 첫 사용자 입력 > 기본값
+        let title = codex_thread_name(&st.codex_id)
+            .filter(|t| !is_noise(t))
+            .or_else(|| {
+                if st.codex_title.is_empty() {
+                    None
+                } else {
+                    Some(st.codex_title.clone())
+                }
+            })
+            .unwrap_or_else(|| "Codex 작업".to_string());
         dispatch_notification(
             app,
             TaskDone {
@@ -482,6 +492,39 @@ fn is_noise(t: &str) -> bool {
         || s.contains("environment_context")
         || s.contains("helpful assistant")
         || s.starts_with("[external_agent") // 도구 호출/결과
+}
+
+/// Codex 세션 파일명 끝의 UUID(session id) 추출: rollout-<ts>-<uuid>.jsonl
+fn session_id_from_path(path: &Path) -> String {
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let chars: Vec<char> = stem.chars().collect();
+    if chars.len() >= 36 {
+        chars[chars.len() - 36..].iter().collect()
+    } else {
+        String::new()
+    }
+}
+
+/// ~/.codex/session_index.jsonl 에서 세션 id → 사용자가 설정한 스레드 제목 조회
+fn codex_thread_name(id: &str) -> Option<String> {
+    if id.is_empty() {
+        return None;
+    }
+    let idx = home().join(".codex").join("session_index.jsonl");
+    let content = fs::read_to_string(idx).ok()?;
+    for line in content.lines() {
+        if let Ok(v) = serde_json::from_str::<Value>(line.trim_start_matches('\u{feff}')) {
+            if v["id"].as_str() == Some(id) {
+                if let Some(name) = v["thread_name"].as_str() {
+                    let n = name.trim();
+                    if !n.is_empty() {
+                        return Some(n.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn codex_user_text(v: &Value) -> Option<String> {
