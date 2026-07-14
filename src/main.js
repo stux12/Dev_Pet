@@ -179,10 +179,14 @@ function renderList() {
   }
 }
 function addNotif(d) {
+  const source = d.source || "unknown";
+  const title = (d.message || "작업").trim();
+  // 같은 채팅(동일 source+제목)에서 온 기존 알림은 리스트에서 제거 → 채팅당 최신 1건만 유지
+  notifs = notifs.filter((n) => !(n.source === source && n.title === title));
   notifs.push({
-    source: d.source || "unknown",
+    source,
     kind: d.kind || "completed",
-    title: (d.message || "작업").trim(),
+    title,
     detail: (d.detail || "").trim(),
     hwnd: d.hwnd || 0,
     ts: Date.now(),
