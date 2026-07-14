@@ -512,19 +512,22 @@ fn codex_thread_name(id: &str) -> Option<String> {
     }
     let idx = home().join(".codex").join("session_index.jsonl");
     let content = fs::read_to_string(idx).ok()?;
+    // 같은 id가 여러 줄일 수 있음(제목을 바꿀 때마다 append됨).
+    // 마지막(=가장 최근) 항목의 thread_name을 사용한다.
+    let mut latest: Option<String> = None;
     for line in content.lines() {
         if let Ok(v) = serde_json::from_str::<Value>(line.trim_start_matches('\u{feff}')) {
             if v["id"].as_str() == Some(id) {
                 if let Some(name) = v["thread_name"].as_str() {
                     let n = name.trim();
                     if !n.is_empty() {
-                        return Some(n.to_string());
+                        latest = Some(n.to_string());
                     }
                 }
             }
         }
     }
-    None
+    latest
 }
 
 fn codex_user_text(v: &Value) -> Option<String> {
