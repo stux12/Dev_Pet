@@ -146,6 +146,18 @@ body.physics .pet:active { cursor: grabbing; }
 #pet-svg.wince #eyes { display: none; }
 #pet-svg.wince #wince-eyes { display: block; }
 
+/* 감지 중(로딩) 생각하는 표정: 눈을 살짝 위로, 머리 위 점 통통 */
+#think-dots { display: none; }
+#pet-svg.thinking #think-dots { display: block; }
+#pet-svg.thinking #eyes { transform: translateY(-3px); transform-origin: center; }
+#pet-svg.thinking #think-dots circle { animation: thinkBounce 1.2s ease-in-out infinite; }
+#pet-svg.thinking #think-dots circle:nth-child(2) { animation-delay: 0.18s; }
+#pet-svg.thinking #think-dots circle:nth-child(3) { animation-delay: 0.36s; }
+@keyframes thinkBounce {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-3px); }
+}
+
 /* ── 상태 패널 / 알림 리스트 (펫 아래 고정 위치) ── */
 .panel {
   position: absolute;

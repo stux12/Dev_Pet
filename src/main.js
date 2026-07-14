@@ -81,11 +81,42 @@ $("bubble").addEventListener("click", () => {
   hideBubble();
 });
 
+/* ─────────────── 최초 감지(로딩) 화면 ─────────────── */
+// 앱을 켤 때마다 시작 시 한 번, 필요한 대화 기록 파일을 감지할 때까지
+// 생각하는 표정 + "감지 중" 문구를 띄우고, 스캔이 끝나면 준비 완료 문구로 전환.
+let scanning = true;
+let scanDone = false;
+const SCAN_MIN_MS = 1800; // 너무 빨리 끝나도 최소 이만큼은 로딩을 보여줌
+const scanStart = Date.now();
+function beginScan() {
+  $("pet-svg").classList.add("thinking");
+  showBubble("필요한 파일을 감지하고 있어요… 🔍", 0); // 0 = 자동으로 안 사라짐
+}
+function finishScan(info) {
+  if (scanDone) return;
+  scanDone = true;
+  const wait = Math.max(0, SCAN_MIN_MS - (Date.now() - scanStart));
+  setTimeout(() => {
+    scanning = false;
+    $("pet-svg").classList.remove("thinking");
+    const found = [];
+    if (info && info.claude) found.push("Claude");
+    if (info && info.codex) found.push("Codex");
+    const who = found.length ? `(${found.join(" · ")} 기록 감지) ` : "";
+    showBubble(`감지 완료! ${who}이제 정상적으로 사용할 수 있어요 ✅`, 4000);
+  }, wait);
+}
+beginScan();
+listen("scan-ready", (e) => finishScan(e.payload));
+// 안전장치: 이벤트가 안 오더라도 8초 뒤엔 로딩 해제
+setTimeout(() => finishScan(null), 8000);
+
 /* ─────────────── 위험 경고 ─────────────── */
 const warned = { cpu: false, mem: false, disk: false };
 const warnedAt = { cpu: 0, mem: 0, disk: 0 };
 const REWARN_MS = 3 * 60 * 1000;
 function checkWarnings(m) {
+  if (scanning) return; // 최초 감지 중엔 로딩 말풍선을 유지
   const now = Date.now();
   const checks = [
     ["cpu", m.cpu >= 85, `앗, CPU가 ${Math.round(m.cpu)}%까지 치솟았어요! 🔥\n무거운 작업이나 멈춘 프로세스가 있는지 살펴볼까요?`],

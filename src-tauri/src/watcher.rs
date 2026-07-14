@@ -10,7 +10,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 const POLL_MS: u64 = 1200;
@@ -71,6 +71,7 @@ pub fn spawn(app: AppHandle) {
         let mut states: HashMap<PathBuf, FState> = HashMap::new();
         let claude_root = home().join(".claude").join("projects");
         let codex_root = home().join(".codex").join("sessions");
+        let mut first_pass = true;
         loop {
             let mut files: Vec<(PathBuf, bool)> = Vec::new();
             collect_recent(&claude_root, false, &mut files, 0);
@@ -78,6 +79,17 @@ pub fn spawn(app: AppHandle) {
             for (path, is_codex) in files {
                 let st = states.entry(path.clone()).or_default();
                 process(&app, &path, is_codex, st);
+            }
+            // 최초 스캔 완료 → 프론트에 알림(로딩 화면 종료용). 어떤 도구 기록을 찾았는지도 전달.
+            if first_pass {
+                first_pass = false;
+                let _ = app.emit(
+                    "scan-ready",
+                    serde_json::json!({
+                        "claude": claude_root.is_dir(),
+                        "codex": codex_root.is_dir(),
+                    }),
+                );
             }
             std::thread::sleep(Duration::from_millis(POLL_MS));
         }
