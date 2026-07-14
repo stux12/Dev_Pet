@@ -115,6 +115,8 @@ function finishScan(info) {
 }
 beginScan();
 listen("scan-ready", (e) => finishScan(e.payload));
+// 백그라운드 토스트 클릭 → 펫이 뜨면서 알림 리스트까지 열기
+listen("open-notif-list", () => { setView("list"); });
 // 안전장치: 이벤트가 안 오더라도 8초 뒤엔 로딩 해제
 setTimeout(() => finishScan(null), 8000);
 

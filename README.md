@@ -28,7 +28,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 ### 방법 A — 설치 파일로 실행 (권장, 가장 간단)
 
 릴리스: https://github.com/stux12/Dev_Pet/releases/latest
-1. `DevPet_0.1.7_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
+1. `DevPet_0.1.8_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
 2. 시작 메뉴에서 **DevPet** 실행
 
 ### 방법 B — 소스에서 빌드
@@ -52,9 +52,9 @@ npm run tauri build
 | 파일 | 경로 | 용도 |
 |------|------|------|
 | 실행 파일 | `src-tauri/target/release/dev-pet.exe` | 설치 없이 **바로 실행** |
-| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.1.7_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
+| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.1.8_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
 
-- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.1.7_x64_en-US.msi`
+- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.1.8_x64_en-US.msi`
 - 파일 탐색기 주소창에 `src-tauri\target\release\bundle\msi` 를 붙여넣으면 해당 폴더가 열립니다.
 - ⚠️ `target/` 폴더는 `.gitignore`로 **저장소에는 포함되지 않습니다.** 각자 `npm run tauri build`로 생성하세요.
 - 다른 PC에 배포하려면 **`.msi` 파일 하나만** 넘겨주면 됩니다.
@@ -169,6 +169,9 @@ MIT
 ## 🗒️ 업데이트 이력
 
 > 커밋이 있을 때마다 무엇을 바꿨는지 여기에 간략히 기록합니다. (최신순)
+
+### 2026-07-15 · v0.1.8
+- **토스트 클릭 시 알림 리스트까지 열기** — 백그라운드 토스트를 클릭하면 펫만 나타나던 것을, 펫이 뜨면서 **알림 리스트 창까지 자동으로 열리도록** 변경(쌓인 알림을 바로 확인).
 
 ### 2026-07-15 · v0.1.7
 - **메모리/디스크 위험 경고가 안 뜨던 문제 수정** — 위험 경고가 CPU→메모리→디스크 순서로 먼저 걸린 하나만 표시하고 멈춰서, CPU가 자주 위험하면 메모리·디스크 경고가 계속 밀렸습니다. 이제 위험 항목 중 **가장 오래 안 알린 것부터** 공평하게 표시합니다.

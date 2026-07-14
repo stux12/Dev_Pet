@@ -215,6 +215,7 @@ fn show_toast(app: &tauri::AppHandle, done: &TaskDone) {
             .duration(ToastDuration::Short)
             .on_activated(move |_action| {
                 show_pet(&handle); // 토스트 클릭 → 펫 등장
+                let _ = handle.emit("open-notif-list", ()); // + 알림 리스트 열기
                 Ok(())
             })
             .show()
