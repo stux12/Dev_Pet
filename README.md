@@ -128,17 +128,6 @@ $sc.Save()
 
 ---
 
-## 🧩 (선택) 훅 방식 — CLI에서 즉시 알림
-
-CLI만 쓰고 즉각적인 알림을 원하면 훅을 쓸 수 있습니다. **단, 파일 감시와 같이 켜면 CLI에서 이중 알림**이 됩니다.
-
-- Claude: `~/.claude/settings.json` 의 `hooks`에 `Stop`→`hooks/claude-notify.ps1`, `Notification`→`hooks/claude-approve.ps1` 등록 (경로는 본인 환경에 맞게, 절대경로).
-- Codex: notify 슬롯이 OpenAI 런타임에 점유돼 있어 네이티브 포워더 `hooks/codex-forward.exe`로 원본 호출 + 펫 알림을 함께 처리. 원본 exe 경로는 `src-tauri/src/bin/codex-forward.rs` 의 `ORIG_EXE` 상수(환경마다 다름) → 수정 후 `cargo build --release --bin codex-forward`.
-
-> ⚠️ 한글이 든 `.ps1` 은 **UTF-8 with BOM**으로 저장해야 PowerShell 5.1에서 안 깨집니다. transcript 읽을 땐 `Get-Content -Encoding UTF8`.
-
----
-
 ## 🏗️ 프로젝트 구조
 
 ```
@@ -150,10 +139,8 @@ pet-app/
 ├─ src-tauri/
 │  ├─ src/lib.rs              # 메트릭·알림 HTTP 서버·소리·창 포커스·디스코드 전송
 │  ├─ src/watcher.rs          # 대화 기록 파일 감시(완료/승인 감지)
-│  ├─ src/bin/codex-forward.rs# (선택) Codex notify 포워더
 │  ├─ tauri.conf.json         # 투명/always-on-top 창 설정
 │  └─ capabilities/           # Tauri 권한
-├─ hooks/                     # (선택) 훅 스크립트/바이너리
 └─ gen-icon.mjs               # 아이콘 생성기
 ```
 
@@ -181,6 +168,7 @@ MIT
 > 커밋이 있을 때마다 무엇을 바꿨는지 여기에 간략히 기록합니다. (최신순)
 
 ### 2026-07-15
+- **미사용 훅 코드 정리** — 파일 감시 방식으로 완전히 대체되어 더 이상 쓰지 않는 훅 스크립트(`hooks/`)와 Codex 포워더(`src/bin/codex-forward.rs`)를 제거하고 README·설정을 정리.
 - **Codex 제목이 옛 이름으로 나오던 문제 수정** — `session_index.jsonl`에 같은 세션 id가 여러 줄(제목 변경 시마다 추가)일 때 첫 줄(옛 제목)을 쓰던 버그를 고쳐, **가장 최근 thread_name**을 사용하도록 변경.
 
 ### 2026-07-14

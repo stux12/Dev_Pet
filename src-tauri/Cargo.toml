@@ -3,7 +3,6 @@ name = "dev-pet"
 version = "0.1.0"
 description = "귀여운 개발자 시스템 모니터링 펫"
 edition = "2021"
-# 앱 본체 바이너리 지정 (codex-forward 보조 바이너리와 구분 → tauri 번들이 올바른 exe 사용)
 default-run = "dev-pet"
 
 [lib]
