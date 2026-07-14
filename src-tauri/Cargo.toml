@@ -1,6 +1,6 @@
 [package]
 name = "dev-pet"
-version = "0.1.5"
+version = "0.1.6"
 description = "귀여운 개발자 시스템 모니터링 펫"
 edition = "2021"
 default-run = "dev-pet"
@@ -23,7 +23,8 @@ tiny_http = "0.12"
 open = "5"
 time = { version = "0.3", features = ["parsing"] }
 ureq = "2"
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_System_Threading"] }
+winreg = "0.52"
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_System_Threading", "Win32_UI_Shell"] }
 
 [profile.release]
 opt-level = "s"

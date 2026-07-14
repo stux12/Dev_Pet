@@ -28,7 +28,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 ### 방법 A — 설치 파일로 실행 (권장, 가장 간단)
 
 릴리스: https://github.com/stux12/Dev_Pet/releases/latest
-1. `DevPet_0.1.5_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
+1. `DevPet_0.1.6_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
 2. 시작 메뉴에서 **DevPet** 실행
 
 ### 방법 B — 소스에서 빌드
@@ -52,9 +52,9 @@ npm run tauri build
 | 파일 | 경로 | 용도 |
 |------|------|------|
 | 실행 파일 | `src-tauri/target/release/dev-pet.exe` | 설치 없이 **바로 실행** |
-| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.1.5_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
+| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.1.6_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
 
-- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.1.5_x64_en-US.msi`
+- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.1.6_x64_en-US.msi`
 - 파일 탐색기 주소창에 `src-tauri\target\release\bundle\msi` 를 붙여넣으면 해당 폴더가 열립니다.
 - ⚠️ `target/` 폴더는 `.gitignore`로 **저장소에는 포함되지 않습니다.** 각자 `npm run tauri build`로 생성하세요.
 - 다른 PC에 배포하려면 **`.msi` 파일 하나만** 넘겨주면 됩니다.
@@ -169,6 +169,10 @@ MIT
 ## 🗒️ 업데이트 이력
 
 > 커밋이 있을 때마다 무엇을 바꿨는지 여기에 간략히 기록합니다. (최신순)
+
+### 2026-07-15 · v0.1.6
+- **토스트 알림 표시 수정** — 토스트가 뜨려면 앱의 AUMID가 등록돼 있어야 하는데(미등록이면 조용히 표시 안 됨), 시작 시 AUMID를 등록(HKCU)하고 프로세스에 지정해 토스트가 **"DevPet"** 이름으로 뜨도록 했습니다.
+  - 참고: Windows **알림이 켜져 있고** `WpnUserService`(푸시 알림 서비스)가 실행 중이어야 토스트가 보입니다. 안 뜨면 설정 → 시스템 → **알림 ON**, **집중 지원(방해 금지) OFF**, 필요 시 재부팅.
 
 ### 2026-07-15 · v0.1.5
 - **백그라운드 윈도우 토스트 알림 추가** — **백그라운드(펫 숨김) 상태일 때만** 작업 완료/승인 알림을 **Windows 토스트**로 띄웁니다. 이때 펫은 튀어나오지 않고 토스트만 쌓이며, **토스트를 클릭하면 펫이 다시 나타납니다.** (펫이 화면에 보이는 중이면 기존처럼 말풍선으로 표시)

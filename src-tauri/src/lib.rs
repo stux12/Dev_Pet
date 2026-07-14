@@ -9,8 +9,10 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
 use tauri_winrt_notification::{Duration as ToastDuration, Toast};
+use windows::core::w;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Diagnostics::Debug::Beep;
+use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, IsWindow, SetForegroundWindow,
@@ -169,6 +171,19 @@ pub(crate) fn short(s: &str, n: usize) -> String {
         format!("{}…", chars[..n].iter().collect::<String>())
     } else {
         joined
+    }
+}
+
+/// 토스트 알림이 'DevPet' 이름으로 뜨도록 AUMID를 등록(HKCU)하고 프로세스에 지정한다.
+/// (미등록 AUMID면 `show()`가 에러 없이 조용히 표시 안 됨 → 토스트가 안 뜨는 원인)
+fn register_aumid() {
+    if let Ok((key, _)) = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+        .create_subkey("Software\\Classes\\AppUserModelId\\com.devpet.app")
+    {
+        let _ = key.set_value("DisplayName", &"DevPet");
+    }
+    unsafe {
+        let _ = SetCurrentProcessExplicitAppUserModelID(w!("com.devpet.app"));
     }
 }
 
@@ -400,6 +415,7 @@ fn spawn_notify_server(app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    register_aumid(); // 토스트 알림 표시를 위한 AUMID 등록/지정 (창 생성 전에)
     tauri::Builder::default()
         // 단일 인스턴스: 앱은 항상 1개만. 이미 실행 중이면 두 번째 실행은 기존 창만 보여주고 종료.
         // (가장 먼저 등록되어야 함)
