@@ -16,7 +16,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 const POLL_MS: u64 = 1200;
 const RECENT_SECS: u64 = 60; // 최근 이만큼 수정된 파일만 처리
 const CLAUDE_QUIET: u32 = 1; // 완료 후보가 이만큼 안정되면 알림(스트리밍 오탐 방지)
-const APPROVAL_QUIET: u32 = 4; // 도구 호출 후 이만큼(≈5초) 결과 없으면 '승인 필요' 추정
+const APPROVAL_QUIET: u32 = 12; // 도구 호출 후 이만큼(≈14초) 결과 없으면 '승인 필요' 추정(생각/처리중 오탐 방지)
 const TAIL_BYTES: u64 = 512 * 1024; // 최초 목격 시 훑을 꼬리 크기
 
 static START: OnceLock<OffsetDateTime> = OnceLock::new();
