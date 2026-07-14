@@ -130,17 +130,20 @@ function checkWarnings(m) {
     ["mem", m.mem_pct >= 85, `메모리가 ${Math.round(m.mem_pct)}%예요 😥\n안 쓰는 앱이나 브라우저 탭을 좀 닫아주면 한결 가벼워질 거예요.`],
     ["disk", m.disk_pct >= 90, `디스크가 ${Math.round(m.disk_pct)}%나 찼어요 🧹\n곧 저장 공간이 부족해질 수 있어요. 정리가 필요해요!`],
   ];
-  for (const [key, isDanger, msg] of checks) {
-    if (isDanger) {
-      if (!warned[key] || now - warnedAt[key] > REWARN_MS) {
-        showBubble(msg, 9000, "danger");
-        warned[key] = true;
-        warnedAt[key] = now;
-        break;
-      }
-    } else {
-      warned[key] = false;
-    }
+  // 위험이 해제된 항목은 경고 상태 리셋(회복 후 다시 위험해지면 재경고)
+  for (const [key, isDanger] of checks) {
+    if (!isDanger) warned[key] = false;
+  }
+  // 경고가 필요한(위험 + 쿨다운 경과) 항목 중, 가장 오래전에 알린 것부터 표시.
+  // (CPU가 먼저라고 항상 선점해 메모리·디스크 경고가 밀리던 문제 방지)
+  const due = checks
+    .filter(([key, isDanger]) => isDanger && (!warned[key] || now - warnedAt[key] > REWARN_MS))
+    .sort((a, b) => warnedAt[a[0]] - warnedAt[b[0]]);
+  if (due.length) {
+    const [key, , msg] = due[0];
+    showBubble(msg, 9000, "danger");
+    warned[key] = true;
+    warnedAt[key] = now;
   }
 }
 
