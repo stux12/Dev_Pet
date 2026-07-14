@@ -8,6 +8,7 @@ use sysinfo::{Disks, System};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
+use tauri_winrt_notification::{Duration as ToastDuration, Toast};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Diagnostics::Debug::Beep;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
@@ -171,14 +172,64 @@ pub(crate) fn short(s: &str, n: usize) -> String {
     }
 }
 
-/// 알림 발송: 소리 재생 + 프론트로 emit + 창 표시 + 디스코드 전송 (HTTP 서버와 watcher가 공용)
+/// Windows 토스트 알림 표시. 클릭하면 숨겨진 펫이 다시 나타난다(실행 중 프로세스가 콜백 수신).
+/// 백그라운드(창 숨김) 상태에서만 호출된다.
+fn show_toast(app: &tauri::AppHandle, done: &TaskDone) {
+    let icon = match done.source.as_str() {
+        "claude" => "🟠",
+        "codex" => "🟢",
+        _ => "🔔",
+    };
+    let name = if done.message.is_empty() {
+        "작업"
+    } else {
+        &done.message
+    };
+    let label = if done.kind == "approval" {
+        "승인 필요 🔔"
+    } else {
+        "작업 완료 ✅"
+    };
+    let title = format!("{} {}", icon, name);
+    let body = format!("{}\n클릭하면 펫이 나타나요", label);
+
+    let build = |app_id: &str, handle: tauri::AppHandle| {
+        Toast::new(app_id)
+            .title(&title)
+            .text1(&body)
+            .duration(ToastDuration::Short)
+            .on_activated(move |_action| {
+                show_pet(&handle); // 토스트 클릭 → 펫 등장
+                Ok(())
+            })
+            .show()
+    };
+    // 설치본은 앱 AUMID로 'DevPet'으로 표시됨. 실패하면 PowerShell 앱ID로 폴백(표시 보장).
+    if build("com.devpet.app", app.clone()).is_err() {
+        let _ = build(Toast::POWERSHELL_APP_ID, app.clone());
+    }
+}
+
+/// 알림 발송: 소리 재생 + 디스코드 + 프론트 emit. (HTTP 서버와 watcher가 공용)
+/// 창이 보이는 중이면 펫을 앞으로, 백그라운드(숨김)면 펫을 띄우지 않고 토스트만 쌓는다.
 pub(crate) fn dispatch_notification(app: &tauri::AppHandle, done: TaskDone) {
     play_sound(&done.kind);
     send_discord(&done);
-    let _ = app.emit("task-done", done);
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.show();
-        let _ = win.set_always_on_top(true);
+    let hidden = app
+        .get_webview_window("main")
+        .map(|w| !w.is_visible().unwrap_or(true))
+        .unwrap_or(false);
+    if hidden {
+        // 백그라운드: 펫을 띄우지 않고 윈도우 토스트만 표시
+        show_toast(app, &done);
+    }
+    // 리스트/배지 누적(펫이 다시 보일 때 확인). 보이는 상태면 말풍선도 표시됨.
+    let _ = app.emit("task-done", &done);
+    if !hidden {
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.show();
+            let _ = win.set_always_on_top(true);
+        }
     }
 }
 
