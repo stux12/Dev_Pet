@@ -357,7 +357,18 @@ fn process_claude_line(st: &mut FState, v: &Value) {
                 .as_str()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| ts.clone());
-            st.tail_candidate = !text.is_empty() && !has_tool;
+            // 완료 후보 판정: 가능하면 stop_reason 사용(가장 견고).
+            //   CLI 는 thinking/text/tool_use 를 각각 별도 줄로 기록하므로, 도구 호출
+            //   직전의 중간 설명 텍스트가 "text 있고 도구 없음"으로 남아 완료로 오탐된다.
+            //   같은 응답의 각 줄에는 동일한 stop_reason 이 복제되므로 이를 기준 삼는다:
+            //     end_turn = 턴 종료(완료) / tool_use = 도구로 계속.
+            //   stop_reason 이 없는 구형 기록은 기존 휴리스틱으로 폴백.
+            let stop = v["message"]["stop_reason"].as_str().unwrap_or("");
+            st.tail_candidate = if stop.is_empty() {
+                !text.is_empty() && !has_tool
+            } else {
+                stop == "end_turn" && !text.is_empty()
+            };
             st.cand_ts = ts.clone();
             st.cand_marker = marker.clone();
             // 승인 대기 후보: 마지막이 '권한 필요' 도구호출일 때만 (읽기전용 도구 오탐 제외)
