@@ -11,7 +11,7 @@ const SIZE = {
   panel: [260, 320],
   list: [260, 456],
   listDiscord: [260, 580], // 디스코드 설정 폼 펼쳤을 때
-  closeMenu: [252, 338], // × 종료 선택 메뉴 (패널 top:170 기준 아래로 충분히)
+  closeMenu: [260, 360], // × 종료 선택 메뉴. 너비는 다른 뷰와 동일해야(260) 펫·×버튼이 안 밀림. 높이는 패널 top:170 + 내용(~180)이 안 잘리게.
 };
 
 function getVar(name) {
@@ -272,6 +272,9 @@ async function setView(v) {
   // 뷰 바뀌면 디스코드 설정 폼 닫기
   discordOpen = false;
   $("discord-settings").classList.add("hidden");
+  // 종료 메뉴가 열려 있었으면 함께 닫기(다른 뷰로 전환 시 겹쳐 보이는 문제 방지)
+  closeMenuOpen = false;
+  $("close-menu").classList.add("hidden");
   $("panel").classList.toggle("hidden", v !== "panel");
   $("notif-list").classList.toggle("hidden", v !== "list");
   const [w, h] = SIZE[v] || SIZE.collapsed;
