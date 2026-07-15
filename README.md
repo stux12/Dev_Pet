@@ -14,7 +14,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 | 🔔 **작업 완료 알림** | Claude Code·Codex 작업이 끝나면 "무슨 작업이 완료됐는지" 펫이 알림 (설정 불필요) |
 | 🍞 **백그라운드 토스트** | 펫을 숨겨두면 Windows 토스트로 알림. 토스트 클릭 시 펫 복귀 |
 | 🧷 **시스템 트레이** | 백그라운드로 숨겨도 트레이 아이콘으로 다시 열기 |
-| ⚠️ **승인 필요 알림** | 명령 실행 등 허용이 필요할 때 알림 (best-effort) |
+| ⚠️ **승인 필요 알림** | Claude Code CLI가 명령 실행 등 허용을 물을 때 알림 (Notification 훅, 자동 등록) |
 | 📋 **알림 리스트** | 종(🔔) 아이콘에 최근 50건 보관, 안 읽은 개수 배지 |
 | 🔊 **알림 소리** | 완료/승인 구분음, 음소거 토글 |
 | 💬 **디스코드 연동** | 웹훅 URL만 넣으면 모든 알림을 디스코드로도 전송 |
@@ -28,7 +28,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 ### 방법 A — 설치 파일로 실행 (권장, 가장 간단)
 
 릴리스: https://github.com/stux12/Dev_Pet/releases/latest
-1. `DevPet_0.1.10_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
+1. `DevPet_0.2.1_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
 2. 시작 메뉴에서 **DevPet** 실행
 
 ### 방법 B — 소스에서 빌드
@@ -52,9 +52,9 @@ npm run tauri build
 | 파일 | 경로 | 용도 |
 |------|------|------|
 | 실행 파일 | `src-tauri/target/release/dev-pet.exe` | 설치 없이 **바로 실행** |
-| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.1.10_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
+| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.1_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
 
-- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.1.10_x64_en-US.msi`
+- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.1_x64_en-US.msi`
 - 파일 탐색기 주소창에 `src-tauri\target\release\bundle\msi` 를 붙여넣으면 해당 폴더가 열립니다.
 - ⚠️ `target/` 폴더는 `.gitignore`로 **저장소에는 포함되지 않습니다.** 각자 `npm run tauri build`로 생성하세요.
 - 다른 PC에 배포하려면 **`.msi` 파일 하나만** 넘겨주면 됩니다.
@@ -118,14 +118,14 @@ $sc.Save()
 
 펫 앱이 AI 도구의 **대화 기록 파일을 직접 감시**합니다. 훅 설정이 필요 없고, CLI·데스크탑 앱·Codex를 모두 커버합니다.
 
-- **Claude**: `%USERPROFILE%\.claude\projects\*\*.jsonl` — 마지막이 '도구호출 없는 assistant 텍스트'면 완료. 제목은 대화창 이름.
-- **Codex**: `%USERPROFILE%\.codex\sessions\**\*.jsonl` — `task_complete` 이벤트 감지.
-- **승인 필요(best-effort)**: 마지막이 **권한 필요 도구**(Bash·Write·Edit 등)의 호출이고 결과 없이 ~19초 조용하면 추정 알림. 읽기전용 도구(Read·Grep·Glob 등)는 제외.
+- **완료(Claude)**: `%USERPROFILE%\.claude\projects\*\*.jsonl` 감시 — 응답의 `stop_reason`이 `end_turn`이면 완료. 제목은 대화창 이름.
+- **완료(Codex)**: `%USERPROFILE%\.codex\sessions\**\*.jsonl` — `task_complete` 이벤트 감지.
+- **승인 필요(Claude CLI)**: CLI의 **Notification 훅**(`permission_prompt`)으로 감지. 앱이 시작 시 훅 스크립트를 `~/.claude`에 설치하고 `settings.json`에 자동 등록합니다(별도 설정 불필요). 승인 프롬프트가 떠 있는 동안엔 기록 파일에 도구 호출이 **아직 없어**(승인 후에야 기록됨) 파일 감시로는 감지할 수 없기 때문입니다.
 - 앱 시작 이후의 완료만 알림(과거 것 무시). 감지까지 약 1~2초.
 
-> **왜 훅이 아니라 감시?** Claude Code **데스크탑 앱은 command 훅을 실행하지 않기** 때문입니다(CLI만 실행). 파일 감시는 둘 다 커버합니다.
+> **완료는 감시, 승인은 훅 — 왜 나눴나?** Claude Code **데스크탑 앱은 command 훅을 실행하지 않아**(CLI만 실행) 완료 감지는 파일 감시로 CLI·데스크탑을 모두 커버합니다. 반면 승인 대기는 파일에 흔적이 남지 않으므로 CLI 훅으로만 잡을 수 있습니다.
 
-**한계**: 승인 감지는 파일에 명시적 마커가 없어 추정 방식이라, **자동 승인된 긴 작업(빌드 등)을 승인 대기로 오인**할 수 있습니다. Codex는 `sandbox=elevated`면 자동 승인이라 승인 요청이 없습니다.
+**한계**: 승인 알림은 훅을 실행하는 **Claude Code CLI에서만** 동작합니다(데스크탑 앱·Codex는 승인을 앱/샌드박스가 자체 처리). Codex는 `sandbox=elevated`면 자동 승인이라 승인 요청이 없습니다.
 
 수동 테스트용 로컬 엔드포인트도 있습니다: `POST http://127.0.0.1:37651/notify` — body `{source,kind,message,detail}`.
 
@@ -155,7 +155,7 @@ pet-app/
 
 - **Windows 전용** (WebView2 + `windows` 크레이트 사용).
 - 토큰 잔량 API가 없어 사용량은 **페이지 링크**로 대체합니다.
-- 승인 알림은 best-effort(위 "동작 원리" 참고).
+- 승인 알림은 Claude Code CLI 전용(Notification 훅, 앱이 자동 등록).
 - 디스코드 전송은 CORS 회피를 위해 Rust에서 처리합니다.
 
 ---
@@ -169,6 +169,9 @@ MIT
 ## 🗒️ 업데이트 이력
 
 > 커밋이 있을 때마다 무엇을 바꿨는지 여기에 간략히 기록합니다. (최신순)
+
+### 2026-07-15 · v0.2.1
+- **CLI 승인 알림 방식 교체 (파일 감시 → Notification 훅)** — Claude Code CLI는 승인 프롬프트가 떠 있는 동안 도구 호출을 기록 파일에 **아직 쓰지 않아**(승인한 후에야 기록됨), 파일 감시로는 "승인 대기"를 감지할 수 없었습니다. 이제 CLI의 **Notification 훅(`permission_prompt`)**으로 정확히 감지합니다. 앱이 시작 시 훅 스크립트를 `~/.claude`에 설치하고 `settings.json`에 **자동 등록**하므로 별도 설정은 필요 없습니다. 기존의 파일 감시 기반 승인 추정(자동 실행되는 긴 작업을 승인 대기로 오탐하던)은 제거했습니다. (완료 알림은 기존 파일 감시 유지)
 
 ### 2026-07-15 · v0.1.10
 - **× 종료 메뉴 UI 3가지 수정** —

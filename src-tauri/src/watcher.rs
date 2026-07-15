@@ -16,8 +16,9 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 const POLL_MS: u64 = 1200;
 const RECENT_SECS: u64 = 60; // 최근 이만큼 수정된 파일만 처리
 const CLAUDE_QUIET: u32 = 1; // 완료 후보가 이만큼 안정되면 알림(스트리밍 오탐 방지)
-const APPROVAL_QUIET: u32 = 16; // 도구 호출 후 이만큼(≈19초) 결과 없으면 '승인 필요' 추정(자동실행 오탐 여유↑)
 const TAIL_BYTES: u64 = 512 * 1024; // 최초 목격 시 훑을 꼬리 크기
+// 승인 대기 감지는 파일 감시로 불가(승인 프롬프트 중엔 transcript 에 tool_use 가 아직
+// 없고, 승인 후에야 기록됨) → Claude Code Notification 훅으로 처리한다(lib.rs 참고).
 
 static START: OnceLock<OffsetDateTime> = OnceLock::new();
 
@@ -36,13 +37,6 @@ struct FState {
     tail_candidate: bool,
     notified: String,
     quiet: u32,
-    // 승인 대기 추정 (마지막이 도구호출 tool_use)
-    pending_tool: bool,
-    pending_marker: String,
-    pending_ts: String,
-    pending_detail: String,
-    pending_quiet: u32,
-    approval_notified: String,
     // Codex
     codex_id: String, // 세션 UUID (파일명에서 추출)
     codex_title: String,
@@ -148,7 +142,6 @@ fn process(app: &AppHandle, path: &Path, is_codex: bool, st: &mut FState) {
 
     if !lines.is_empty() {
         st.quiet = 0;
-        st.pending_quiet = 0;
         for line in &lines {
             let v: Value = match serde_json::from_str(line.trim_start_matches('\u{feff}')) {
                 Ok(v) => v,
@@ -179,7 +172,6 @@ fn process(app: &AppHandle, path: &Path, is_codex: bool, st: &mut FState) {
     if st.tail_candidate && st.cand_marker != st.notified && after_start(&st.cand_ts) {
         // 완료: 도구호출 없는 텍스트가 안정되면
         st.quiet += 1;
-        st.pending_quiet = 0;
         if st.quiet >= CLAUDE_QUIET {
             dispatch_notification(
                 app,
@@ -194,30 +186,8 @@ fn process(app: &AppHandle, path: &Path, is_codex: bool, st: &mut FState) {
             st.notified = st.cand_marker.clone();
             st.quiet = 0;
         }
-    } else if st.pending_tool
-        && st.pending_marker != st.approval_notified
-        && after_start(&st.pending_ts)
-    {
-        // 승인 대기 추정: 도구호출 후 결과 없이 조용하면
-        st.pending_quiet += 1;
-        st.quiet = 0;
-        if st.pending_quiet >= APPROVAL_QUIET {
-            dispatch_notification(
-                app,
-                TaskDone {
-                    source: "claude".into(),
-                    kind: "approval".into(),
-                    message: short(&title, 30),
-                    detail: short(&st.pending_detail, 55),
-                    hwnd: 0,
-                },
-            );
-            st.approval_notified = st.pending_marker.clone();
-            st.pending_quiet = 0;
-        }
     } else {
         st.quiet = 0;
-        st.pending_quiet = 0;
     }
 }
 
@@ -344,11 +314,9 @@ fn process_claude_line(st: &mut FState, v: &Value) {
                 st.last_user = t;
             }
             st.tail_candidate = false;
-            st.pending_tool = false; // tool_result 도착 = 승인/실행됨
         }
         Some("assistant") => {
-            let (text, has_tool, tool_desc, has_sensitive) =
-                assistant_content(&v["message"]["content"]);
+            let (text, has_tool) = assistant_content(&v["message"]["content"]);
             if !text.is_empty() {
                 st.last_assistant = text.clone();
             }
@@ -369,15 +337,8 @@ fn process_claude_line(st: &mut FState, v: &Value) {
             } else {
                 stop == "end_turn" && !text.is_empty()
             };
-            st.cand_ts = ts.clone();
-            st.cand_marker = marker.clone();
-            // 승인 대기 후보: 마지막이 '권한 필요' 도구호출일 때만 (읽기전용 도구 오탐 제외)
-            st.pending_tool = has_tool && has_sensitive;
-            if st.pending_tool {
-                st.pending_marker = marker;
-                st.pending_ts = ts;
-                st.pending_detail = tool_desc;
-            }
+            st.cand_ts = ts;
+            st.cand_marker = marker;
         }
         _ => {}
     }
@@ -435,24 +396,13 @@ fn process_codex_line(app: &AppHandle, st: &mut FState, v: &Value) {
     }
 }
 
-/// 승인(권한 확인)이 흔히 필요한 도구인지. 읽기 전용/자동 실행 도구는 제외해
-/// '승인 대기' 오탐(느린 Read/Grep 등)을 줄인다. 알 수 없는 도구는 승인 대상에서 제외(노이즈 최소화).
-fn is_approval_tool(name: &str) -> bool {
-    const APPROVAL_TOOLS: &[&str] = &[
-        "Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch",
-    ];
-    APPROVAL_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name))
-}
-
-/// content → (텍스트, 도구호출 있음, 첫 도구 요약, 권한필요 도구 포함)
-fn assistant_content(content: &Value) -> (String, bool, String, bool) {
+/// content → (텍스트, 도구호출 있음). 완료 판정에만 사용(stop_reason 폴백용 has_tool).
+fn assistant_content(content: &Value) -> (String, bool) {
     if let Some(s) = content.as_str() {
-        return (s.to_string(), false, String::new(), false);
+        return (s.to_string(), false);
     }
     let mut text = String::new();
     let mut has_tool = false;
-    let mut has_sensitive = false;
-    let mut tool_desc = String::new();
     if let Some(arr) = content.as_array() {
         for p in arr {
             match p["type"].as_str() {
@@ -466,37 +416,12 @@ fn assistant_content(content: &Value) -> (String, bool, String, bool) {
                 }
                 Some("tool_use") => {
                     has_tool = true;
-                    if is_approval_tool(p["name"].as_str().unwrap_or("")) {
-                        has_sensitive = true;
-                    }
-                    if tool_desc.is_empty() {
-                        tool_desc = tool_brief(p);
-                    }
                 }
                 _ => {}
             }
         }
     }
-    (text, has_tool, tool_desc, has_sensitive)
-}
-
-/// tool_use → "도구명: 주요인자" (승인 알림 상세용)
-fn tool_brief(p: &Value) -> String {
-    let name = p["name"].as_str().unwrap_or("도구");
-    let input = &p["input"];
-    let arg = input["command"]
-        .as_str()
-        .or_else(|| input["file_path"].as_str())
-        .or_else(|| input["path"].as_str())
-        .or_else(|| input["pattern"].as_str())
-        .or_else(|| input["url"].as_str())
-        .or_else(|| input["description"].as_str())
-        .unwrap_or("");
-    if arg.is_empty() {
-        name.to_string()
-    } else {
-        format!("{}: {}", name, arg)
-    }
+    (text, has_tool)
 }
 
 fn user_text(content: &Value) -> String {

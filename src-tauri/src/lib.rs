@@ -187,6 +187,98 @@ fn register_aumid() {
     }
 }
 
+/// Claude Code CLI 승인 대기(permission_prompt) 시 DevPet 로 알림을 보내는 PowerShell 훅.
+/// 승인 대기 중엔 transcript 에 tool_use 가 아직 기록되지 않아(승인 후에야 기록됨) 파일
+/// 감시로는 감지 불가 → CLI 의 Notification 훅으로 처리한다. 완료 알림은 파일 감시 유지.
+const APPROVAL_HOOK_PS1: &str = r#"# DevPet 승인 알림 훅 (Claude Code CLI Notification 이벤트) — DevPet 앱이 자동 생성/갱신함
+$ErrorActionPreference = "SilentlyContinue"
+$raw = [Console]::In.ReadToEnd()
+try { $d = $raw | ConvertFrom-Json } catch { exit 0 }
+if ($d.notification_type -ne "permission_prompt") { exit 0 }
+# transcript 에서 제목 추출: custom-title > ai-title > 마지막 사용자 프롬프트
+$title = ""
+$tp = $d.transcript_path
+if ($tp -and (Test-Path $tp)) {
+    $custom = ""; $ai = ""; $lastUser = ""
+    foreach ($line in [System.IO.File]::ReadLines($tp)) {
+        if (-not $line.Trim()) { continue }
+        try { $o = $line | ConvertFrom-Json } catch { continue }
+        switch ($o.type) {
+            "custom-title" { if ($o.customTitle) { $custom = $o.customTitle } }
+            "ai-title"     { if ($o.aiTitle)     { $ai = $o.aiTitle } }
+            "user" {
+                $c = $o.message.content
+                if ($c -is [string]) { if ($c.Trim()) { $lastUser = $c } }
+                elseif ($c) { foreach ($p in $c) { if ($p.type -eq "text" -and $p.text) { $lastUser = $p.text } } }
+            }
+        }
+    }
+    if     ($custom)   { $title = $custom }
+    elseif ($ai)       { $title = $ai }
+    elseif ($lastUser) { $title = $lastUser }
+}
+if (-not $title) { $title = Split-Path $d.cwd -Leaf }
+$title = ($title -replace "\s+", " ").Trim()
+if ($title.Length -gt 30) { $title = $title.Substring(0, 30) }
+$payload = @{ source = "claude"; kind = "approval"; message = $title; detail = "확인이 필요해요 🔔" }
+$json  = $payload | ConvertTo-Json -Compress
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+try { Invoke-RestMethod -Uri "http://127.0.0.1:37651/notify" -Method Post -Body $bytes -ContentType "application/json" -TimeoutSec 3 | Out-Null } catch {}
+exit 0
+"#;
+
+/// 위 훅 스크립트를 ~/.claude 에 쓰고, settings.json 의 hooks.Notification 에 등록한다.
+/// 매 시작 시 멱등적으로 갱신(스크립트 최신화 + 중복 방지). .claude 가 없으면(Claude Code
+/// 미설치) 조용히 스킵. 사용자의 기존 설정은 파싱 후 보존한다.
+fn register_claude_hook() {
+    let home = match std::env::var("USERPROFILE") {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    let claude_dir = std::path::Path::new(&home).join(".claude");
+    if !claude_dir.is_dir() {
+        return;
+    }
+    let script_path = claude_dir.join("devpet-approval-hook.ps1");
+    // UTF-8 BOM 을 붙여 Windows PowerShell 5.1 이 한글을 UTF-8 로 읽게 한다.
+    let mut content = String::from("\u{feff}");
+    content.push_str(APPROVAL_HOOK_PS1);
+    if std::fs::write(&script_path, content).is_err() {
+        return;
+    }
+    let settings_path = claude_dir.join("settings.json");
+    let mut root: serde_json::Value = std::fs::read_to_string(&settings_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .filter(|v| v.is_object())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let cmd = format!(
+        "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{}\"",
+        script_path.display()
+    );
+    let obj = root.as_object_mut().unwrap();
+    let hooks = obj
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}));
+    let notif = match hooks.as_object_mut() {
+        Some(h) => h.entry("Notification").or_insert_with(|| serde_json::json!([])),
+        None => return,
+    };
+    let arr = match notif.as_array_mut() {
+        Some(a) => a,
+        None => return,
+    };
+    // 기존 DevPet 훅(스크립트 이름으로 식별)은 제거 후 재삽입 → 경로/내용 갱신 반영, 중복 방지.
+    arr.retain(|e| !e.to_string().contains("devpet-approval-hook.ps1"));
+    arr.push(serde_json::json!({
+        "matcher": "permission_prompt",
+        "hooks": [{ "type": "command", "command": cmd, "timeout": 10 }]
+    }));
+    if let Ok(s) = serde_json::to_string_pretty(&root) {
+        let _ = std::fs::write(&settings_path, s);
+    }
+}
+
 /// Windows 토스트 알림 표시. 클릭하면 숨겨진 펫이 다시 나타난다(실행 중 프로세스가 콜백 수신).
 /// 백그라운드(창 숨김) 상태에서만 호출된다.
 fn show_toast(app: &tauri::AppHandle, done: &TaskDone) {
@@ -417,6 +509,7 @@ fn spawn_notify_server(app: tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     register_aumid(); // 토스트 알림 표시를 위한 AUMID 등록/지정 (창 생성 전에)
+    register_claude_hook(); // CLI 승인 대기 알림용 Notification 훅 설치/등록
     tauri::Builder::default()
         // 단일 인스턴스: 앱은 항상 1개만. 이미 실행 중이면 두 번째 실행은 기존 창만 보여주고 종료.
         // (가장 먼저 등록되어야 함)
