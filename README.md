@@ -14,7 +14,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 | 🔔 **작업 완료 알림** | Claude Code·Codex 작업이 끝나면 "무슨 작업이 완료됐는지" 펫이 알림 (설정 불필요) |
 | 🍞 **백그라운드 토스트** | 펫을 숨겨두면 Windows 토스트로 알림. 토스트 클릭 시 펫 복귀 |
 | 🧷 **시스템 트레이** | 백그라운드로 숨겨도 트레이 아이콘으로 다시 열기 |
-| ⚠️ **승인 필요 알림** | Claude Code CLI가 명령 실행 등 허용을 물을 때 알림 (Notification 훅, 자동 등록) |
+| ⚠️ **승인·질문 대기 알림** | Claude Code CLI가 허용을 묻거나 질문하고 기다릴 때 알림 (Notification 훅, 자동 등록) |
 | 📋 **알림 리스트** | 종(🔔) 아이콘에 최근 50건 보관, 안 읽은 개수 배지 |
 | 🔊 **알림 소리** | 완료/승인 구분음, 음소거 토글 |
 | 💬 **디스코드 연동** | 웹훅 URL만 넣으면 모든 알림을 디스코드로도 전송 |
@@ -28,7 +28,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 ### 방법 A — 설치 파일로 실행 (권장, 가장 간단)
 
 릴리스: https://github.com/stux12/Dev_Pet/releases/latest
-1. `DevPet_0.2.1_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
+1. `DevPet_0.2.2_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
 2. 시작 메뉴에서 **DevPet** 실행
 
 ### 방법 B — 소스에서 빌드
@@ -52,9 +52,9 @@ npm run tauri build
 | 파일 | 경로 | 용도 |
 |------|------|------|
 | 실행 파일 | `src-tauri/target/release/dev-pet.exe` | 설치 없이 **바로 실행** |
-| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.1_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
+| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.2_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
 
-- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.1_x64_en-US.msi`
+- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.2_x64_en-US.msi`
 - 파일 탐색기 주소창에 `src-tauri\target\release\bundle\msi` 를 붙여넣으면 해당 폴더가 열립니다.
 - ⚠️ `target/` 폴더는 `.gitignore`로 **저장소에는 포함되지 않습니다.** 각자 `npm run tauri build`로 생성하세요.
 - 다른 PC에 배포하려면 **`.msi` 파일 하나만** 넘겨주면 됩니다.
@@ -120,7 +120,7 @@ $sc.Save()
 
 - **완료(Claude)**: `%USERPROFILE%\.claude\projects\*\*.jsonl` 감시 — 응답의 `stop_reason`이 `end_turn`이면 완료. 제목은 대화창 이름.
 - **완료(Codex)**: `%USERPROFILE%\.codex\sessions\**\*.jsonl` — `task_complete` 이벤트 감지.
-- **승인 필요(Claude CLI)**: CLI의 **Notification 훅**(`permission_prompt`)으로 감지. 앱이 시작 시 훅 스크립트를 `~/.claude`에 설치하고 `settings.json`에 자동 등록합니다(별도 설정 불필요). 승인 프롬프트가 떠 있는 동안엔 기록 파일에 도구 호출이 **아직 없어**(승인 후에야 기록됨) 파일 감시로는 감지할 수 없기 때문입니다.
+- **승인·입력 대기(Claude CLI)**: CLI의 **Notification 훅**으로 감지 — `permission_prompt`(권한 확인 대기) / `agent_needs_input`(질문 등 입력 대기). 앱이 시작 시 훅 스크립트를 `~/.claude`에 설치하고 `settings.json`에 자동 등록합니다(별도 설정 불필요). 승인 프롬프트가 떠 있는 동안엔 기록 파일에 도구 호출이 **아직 없어**(승인 후에야 기록됨) 파일 감시로는 감지할 수 없기 때문입니다.
 - 앱 시작 이후의 완료만 알림(과거 것 무시). 감지까지 약 1~2초.
 
 > **완료는 감시, 승인은 훅 — 왜 나눴나?** Claude Code **데스크탑 앱은 command 훅을 실행하지 않아**(CLI만 실행) 완료 감지는 파일 감시로 CLI·데스크탑을 모두 커버합니다. 반면 승인 대기는 파일에 흔적이 남지 않으므로 CLI 훅으로만 잡을 수 있습니다.
@@ -169,6 +169,9 @@ MIT
 ## 🗒️ 업데이트 이력
 
 > 커밋이 있을 때마다 무엇을 바꿨는지 여기에 간략히 기록합니다. (최신순)
+
+### 2026-07-15 · v0.2.2
+- **질문/입력 대기 알림 추가** — 기존엔 권한 확인(`permission_prompt`)만 알렸는데, Claude가 **질문을 던지고 답을 기다릴 때**(`agent_needs_input`)도 알림이 오도록 확장했습니다. 알림 문구로 구분됩니다 — 확인 필요는 `확인이 필요해요 🔔`, 입력 대기는 `입력을 기다리고 있어요 ✋`. (유휴 `idle_prompt`는 완료 알림과 중복이라 제외)
 
 ### 2026-07-15 · v0.2.1
 - **CLI 승인 알림 방식 교체 (파일 감시 → Notification 훅)** — Claude Code CLI는 승인 프롬프트가 떠 있는 동안 도구 호출을 기록 파일에 **아직 쓰지 않아**(승인한 후에야 기록됨), 파일 감시로는 "승인 대기"를 감지할 수 없었습니다. 이제 CLI의 **Notification 훅(`permission_prompt`)**으로 정확히 감지합니다. 앱이 시작 시 훅 스크립트를 `~/.claude`에 설치하고 `settings.json`에 **자동 등록**하므로 별도 설정은 필요 없습니다. 기존의 파일 감시 기반 승인 추정(자동 실행되는 긴 작업을 승인 대기로 오탐하던)은 제거했습니다. (완료 알림은 기존 파일 감시 유지)

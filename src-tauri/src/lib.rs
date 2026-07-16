@@ -190,11 +190,14 @@ fn register_aumid() {
 /// Claude Code CLI 승인 대기(permission_prompt) 시 DevPet 로 알림을 보내는 PowerShell 훅.
 /// 승인 대기 중엔 transcript 에 tool_use 가 아직 기록되지 않아(승인 후에야 기록됨) 파일
 /// 감시로는 감지 불가 → CLI 의 Notification 훅으로 처리한다. 완료 알림은 파일 감시 유지.
-const APPROVAL_HOOK_PS1: &str = r#"# DevPet 승인 알림 훅 (Claude Code CLI Notification 이벤트) — DevPet 앱이 자동 생성/갱신함
+const APPROVAL_HOOK_PS1: &str = r#"# DevPet 승인/입력대기 알림 훅 (Claude Code CLI Notification 이벤트) — DevPet 앱이 자동 생성/갱신함
 $ErrorActionPreference = "SilentlyContinue"
 $raw = [Console]::In.ReadToEnd()
 try { $d = $raw | ConvertFrom-Json } catch { exit 0 }
-if ($d.notification_type -ne "permission_prompt") { exit 0 }
+$nt = $d.notification_type
+# permission_prompt = 권한 확인 대기 / agent_needs_input = 질문 등 사용자 입력 대기
+# (idle_prompt 는 완료 알림과 중복되어 제외)
+if ($nt -ne "permission_prompt" -and $nt -ne "agent_needs_input") { exit 0 }
 # transcript 에서 제목 추출: custom-title > ai-title > 마지막 사용자 프롬프트
 $title = ""
 $tp = $d.transcript_path
@@ -220,7 +223,8 @@ if ($tp -and (Test-Path $tp)) {
 if (-not $title) { $title = Split-Path $d.cwd -Leaf }
 $title = ($title -replace "\s+", " ").Trim()
 if ($title.Length -gt 30) { $title = $title.Substring(0, 30) }
-$payload = @{ source = "claude"; kind = "approval"; message = $title; detail = "확인이 필요해요 🔔" }
+$detail = if ($nt -eq "permission_prompt") { "확인이 필요해요 🔔" } else { "입력을 기다리고 있어요 ✋" }
+$payload = @{ source = "claude"; kind = "approval"; message = $title; detail = $detail }
 $json  = $payload | ConvertTo-Json -Compress
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
 try { Invoke-RestMethod -Uri "http://127.0.0.1:37651/notify" -Method Post -Body $bytes -ContentType "application/json" -TimeoutSec 3 | Out-Null } catch {}
@@ -270,10 +274,14 @@ fn register_claude_hook() {
     };
     // 기존 DevPet 훅(스크립트 이름으로 식별)은 제거 후 재삽입 → 경로/내용 갱신 반영, 중복 방지.
     arr.retain(|e| !e.to_string().contains("devpet-approval-hook.ps1"));
-    arr.push(serde_json::json!({
-        "matcher": "permission_prompt",
-        "hooks": [{ "type": "command", "command": cmd, "timeout": 10 }]
-    }));
+    // permission_prompt = 권한 확인 대기, agent_needs_input = 질문 등 입력 대기.
+    // matcher 가 정규식인지 리터럴인지 보장되지 않아 타입별로 따로 등록한다.
+    for matcher in ["permission_prompt", "agent_needs_input"] {
+        arr.push(serde_json::json!({
+            "matcher": matcher,
+            "hooks": [{ "type": "command", "command": cmd, "timeout": 10 }]
+        }));
+    }
     if let Ok(s) = serde_json::to_string_pretty(&root) {
         let _ = std::fs::write(&settings_path, s);
     }
