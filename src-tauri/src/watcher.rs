@@ -17,8 +17,17 @@ const POLL_MS: u64 = 1200;
 const RECENT_SECS: u64 = 60; // 최근 이만큼 수정된 파일만 처리
 const CLAUDE_QUIET: u32 = 1; // 완료 후보가 이만큼 안정되면 알림(스트리밍 오탐 방지)
 const TAIL_BYTES: u64 = 512 * 1024; // 최초 목격 시 훑을 꼬리 크기
-// 승인 대기 감지는 파일 감시로 불가(승인 프롬프트 중엔 transcript 에 tool_use 가 아직
-// 없고, 승인 후에야 기록됨) → Claude Code Notification 훅으로 처리한다(lib.rs 참고).
+/// 도구 호출 후 이만큼(13 × 1.2s ≈ 15.6초) 결과 없이 조용하면 '승인 대기'로 추정.
+/// **데스크탑 앱 세션에만 적용**한다(아래 설명 참고).
+const APPROVAL_QUIET: u32 = 13;
+
+// 승인 대기 감지가 entrypoint 별로 다른 이유:
+//   - cli: 승인 프롬프트가 떠 있는 동안 transcript 에 tool_use 를 아직 쓰지 않는다
+//          (승인 후에야 기록) → 파일 감시로는 감지 불가 → Notification 훅으로 처리(lib.rs).
+//   - claude-desktop: 승인 프롬프트 중에도 tool_use 가 기록된다. 대신 데스크탑 앱은
+//          훅을 실행하지 않으므로, 파일 감시로 추정하는 수밖에 없다.
+// CLI 세션에 추정을 적용하면 자동 실행되는 긴 명령(빌드 등)을 승인 대기로 오탐하므로
+// 데스크탑 세션에만 켠다.
 
 static START: OnceLock<OffsetDateTime> = OnceLock::new();
 
@@ -40,6 +49,15 @@ struct FState {
     /// 마지막 '실제 사용자 프롬프트' 시각 = 턴 시작 (소요 시간 계산용).
     /// tool_result 는 텍스트가 없어 자연히 걸러진다.
     turn_start_ts: String,
+    /// entrypoint == "claude-desktop" (데스크탑 앱 세션). 승인 추정은 여기서만 한다.
+    is_desktop: bool,
+    // 승인 대기 추정 (데스크탑 전용): 마지막이 '권한 필요' 도구호출이고 결과 없이 조용할 때
+    pending_tool: bool,
+    pending_marker: String,
+    pending_ts: String,
+    pending_detail: String,
+    pending_quiet: u32,
+    approval_notified: String,
     // Codex
     codex_id: String, // 세션 UUID (파일명에서 추출)
     codex_title: String,
@@ -164,6 +182,7 @@ fn process(app: &AppHandle, path: &Path, is_codex: bool, st: &mut FState) {
 
     if !lines.is_empty() {
         st.quiet = 0;
+        st.pending_quiet = 0;
         for line in &lines {
             let v: Value = match serde_json::from_str(line.trim_start_matches('\u{feff}')) {
                 Ok(v) => v,
@@ -194,6 +213,7 @@ fn process(app: &AppHandle, path: &Path, is_codex: bool, st: &mut FState) {
     if st.tail_candidate && st.cand_marker != st.notified && after_start(&st.cand_ts) {
         // 완료: 도구호출 없는 텍스트가 안정되면
         st.quiet += 1;
+        st.pending_quiet = 0;
         if st.quiet >= CLAUDE_QUIET {
             dispatch_notification(
                 app,
@@ -209,8 +229,31 @@ fn process(app: &AppHandle, path: &Path, is_codex: bool, st: &mut FState) {
             st.notified = st.cand_marker.clone();
             st.quiet = 0;
         }
+    } else if st.pending_tool
+        && st.pending_marker != st.approval_notified
+        && after_start(&st.pending_ts)
+    {
+        // 승인 대기 추정(데스크탑 전용): 권한 필요 도구 호출 후 결과 없이 조용하면
+        st.pending_quiet += 1;
+        st.quiet = 0;
+        if st.pending_quiet >= APPROVAL_QUIET {
+            dispatch_notification(
+                app,
+                TaskDone {
+                    source: "claude".into(),
+                    kind: "approval".into(),
+                    message: short(&title, 30),
+                    detail: short(&st.pending_detail, 55),
+                    hwnd: 0,
+                    elapsed_secs: 0,
+                },
+            );
+            st.approval_notified = st.pending_marker.clone();
+            st.pending_quiet = 0;
+        }
     } else {
         st.quiet = 0;
+        st.pending_quiet = 0;
     }
 }
 
@@ -320,6 +363,10 @@ fn load_titles(head: &str, is_codex: bool, st: &mut FState) {
 }
 
 fn process_claude_line(st: &mut FState, v: &Value) {
+    // 세션 출처: "cli" | "claude-desktop". 같은 세션을 양쪽에서 열 수 있어 최신 줄 기준으로 갱신.
+    if let Some(ep) = v["entrypoint"].as_str() {
+        st.is_desktop = ep == "claude-desktop";
+    }
     match v["type"].as_str() {
         Some("custom-title") => {
             if let Some(t) = v["customTitle"].as_str() {
@@ -339,9 +386,11 @@ fn process_claude_line(st: &mut FState, v: &Value) {
                 st.turn_start_ts = v["timestamp"].as_str().unwrap_or("").to_string();
             }
             st.tail_candidate = false;
+            st.pending_tool = false; // tool_result 도착 = 승인되어 실행됨
         }
         Some("assistant") => {
-            let (text, has_tool) = assistant_content(&v["message"]["content"]);
+            let (text, has_tool, tool_desc, has_sensitive) =
+                assistant_content(&v["message"]["content"]);
             if !text.is_empty() {
                 st.last_assistant = text.clone();
             }
@@ -362,8 +411,16 @@ fn process_claude_line(st: &mut FState, v: &Value) {
             } else {
                 stop == "end_turn" && !text.is_empty()
             };
-            st.cand_ts = ts;
-            st.cand_marker = marker;
+            st.cand_ts = ts.clone();
+            st.cand_marker = marker.clone();
+            // 승인 대기 후보: 데스크탑 세션에서 마지막이 '권한 필요' 도구호출일 때만.
+            // (CLI 는 훅이 정확히 잡으므로 추정하지 않는다 — 긴 자동 실행 오탐 방지)
+            st.pending_tool = st.is_desktop && has_tool && has_sensitive;
+            if st.pending_tool {
+                st.pending_marker = marker;
+                st.pending_ts = ts;
+                st.pending_detail = tool_desc;
+            }
         }
         _ => {}
     }
@@ -424,13 +481,48 @@ fn process_codex_line(app: &AppHandle, st: &mut FState, v: &Value) {
     }
 }
 
-/// content → (텍스트, 도구호출 있음). 완료 판정에만 사용(stop_reason 폴백용 has_tool).
-fn assistant_content(content: &Value) -> (String, bool) {
+/// 승인(권한 확인)이 흔히 필요한 도구인지. 읽기 전용/자동 실행 도구는 제외해
+/// 승인 대기 오탐을 줄인다. 알 수 없는 도구는 대상에서 제외(노이즈 최소화).
+fn is_approval_tool(name: &str) -> bool {
+    const APPROVAL_TOOLS: &[&str] = &[
+        "Bash",
+        "PowerShell",
+        "Write",
+        "Edit",
+        "MultiEdit",
+        "NotebookEdit",
+        "WebFetch",
+    ];
+    APPROVAL_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name))
+}
+
+/// tool_use → "도구명: 주요인자" (승인 알림 상세용)
+fn tool_brief(p: &Value) -> String {
+    let name = p["name"].as_str().unwrap_or("도구");
+    let input = &p["input"];
+    let arg = input["command"]
+        .as_str()
+        .or_else(|| input["file_path"].as_str())
+        .or_else(|| input["path"].as_str())
+        .or_else(|| input["url"].as_str())
+        .or_else(|| input["description"].as_str())
+        .unwrap_or("");
+    if arg.is_empty() {
+        name.to_string()
+    } else {
+        format!("{}: {}", name, arg)
+    }
+}
+
+/// content → (텍스트, 도구호출 있음, 첫 도구 요약, 권한필요 도구 포함)
+fn assistant_content(content: &Value) -> (String, bool, String, bool) {
     if let Some(s) = content.as_str() {
-        return (s.to_string(), false);
+        return (s.to_string(), false, String::new(), false);
     }
     let mut text = String::new();
     let mut has_tool = false;
+    let mut has_sensitive = false;
+    let mut tool_desc = String::new();
     if let Some(arr) = content.as_array() {
         for p in arr {
             match p["type"].as_str() {
@@ -444,12 +536,18 @@ fn assistant_content(content: &Value) -> (String, bool) {
                 }
                 Some("tool_use") => {
                     has_tool = true;
+                    if is_approval_tool(p["name"].as_str().unwrap_or("")) {
+                        has_sensitive = true;
+                    }
+                    if tool_desc.is_empty() {
+                        tool_desc = tool_brief(p);
+                    }
                 }
                 _ => {}
             }
         }
     }
-    (text, has_tool)
+    (text, has_tool, tool_desc, has_sensitive)
 }
 
 fn user_text(content: &Value) -> String {
@@ -665,15 +763,79 @@ mod tests {
 
     #[test]
     fn assistant_content_extracts_text_and_tool_flag() {
-        let (text, has_tool) = assistant_content(&v(
+        // Read 는 읽기 전용이라 권한 필요 도구가 아니다
+        let (text, has_tool, _desc, sensitive) = assistant_content(&v(
             r#"[{"type":"text","text":"a"},{"type":"tool_use","name":"Read","input":{}}]"#,
         ));
         assert_eq!(text, "a");
         assert!(has_tool);
+        assert!(!sensitive);
 
-        let (text2, has_tool2) = assistant_content(&v(r#""그냥 문자열""#));
+        let (text2, has_tool2, _, _) = assistant_content(&v(r#""그냥 문자열""#));
         assert_eq!(text2, "그냥 문자열");
         assert!(!has_tool2);
+
+        // Bash/PowerShell 은 권한 필요
+        let (_, _, desc, sensitive2) = assistant_content(&v(
+            r#"[{"type":"tool_use","name":"PowerShell","input":{"command":"ls"}}]"#,
+        ));
+        assert!(sensitive2, "PowerShell 은 승인 대상(윈도우 CLI 셸 도구)");
+        assert_eq!(desc, "PowerShell: ls");
+    }
+
+    /// 승인 추정은 데스크탑 세션에서만. CLI 는 훅이 정확히 잡으므로 추정하면
+    /// 자동 실행되는 긴 명령(빌드 등)을 승인 대기로 오탐한다.
+    #[test]
+    fn approval_pending_only_for_desktop_sessions() {
+        let cli_tool = r#"{"type":"assistant","uuid":"u1","timestamp":"2026-07-15T08:00:00.000Z",
+             "entrypoint":"cli",
+             "message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Bash","input":{"command":"cargo build"}}]}}"#;
+        let mut st = FState::default();
+        process_claude_line(&mut st, &v(cli_tool));
+        assert!(!st.is_desktop);
+        assert!(!st.pending_tool, "CLI 세션은 승인 추정을 하지 않는다");
+
+        let desktop_tool = r#"{"type":"assistant","uuid":"u2","timestamp":"2026-07-15T08:00:00.000Z",
+             "entrypoint":"claude-desktop",
+             "message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Bash","input":{"command":"rm x"}}]}}"#;
+        let mut st2 = FState::default();
+        process_claude_line(&mut st2, &v(desktop_tool));
+        assert!(st2.is_desktop);
+        assert!(st2.pending_tool, "데스크탑 세션은 승인 추정 대상");
+        assert_eq!(st2.pending_marker, "u2");
+        assert_eq!(st2.pending_detail, "Bash: rm x");
+    }
+
+    /// 읽기 전용 도구는 데스크탑에서도 승인 대기로 보지 않는다.
+    #[test]
+    fn readonly_tool_is_not_pending_even_on_desktop() {
+        let mut st = FState::default();
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"assistant","uuid":"u3","timestamp":"2026-07-15T08:00:00.000Z",
+                 "entrypoint":"claude-desktop",
+                 "message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Read","input":{"file_path":"a.txt"}}]}}"#),
+        );
+        assert!(!st.pending_tool);
+    }
+
+    /// tool_result 가 도착하면 승인 대기 상태는 해제된다(승인되어 실행됨).
+    #[test]
+    fn tool_result_clears_pending() {
+        let mut st = FState::default();
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"assistant","uuid":"u4","timestamp":"2026-07-15T08:00:00.000Z",
+                 "entrypoint":"claude-desktop",
+                 "message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}"#),
+        );
+        assert!(st.pending_tool);
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"user","timestamp":"2026-07-15T08:00:05.000Z",
+                 "message":{"content":[{"type":"tool_result","content":"ok"}]}}"#),
+        );
+        assert!(!st.pending_tool);
     }
 
     /// 소요 시간은 '실제 사용자 프롬프트'부터 잰다. 도중의 tool_result 는 턴 시작이 아니다.
