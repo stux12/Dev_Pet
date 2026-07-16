@@ -49,6 +49,9 @@ pub(crate) struct TaskDone {
     /// 알림 클릭 시 포커스할 창 핸들 (있으면)
     #[serde(default)]
     pub hwnd: i64,
+    /// 사용자 프롬프트 ~ 완료까지 걸린 초. 0 이면 표시하지 않음.
+    #[serde(default)]
+    pub elapsed_secs: u64,
 }
 
 fn default_kind() -> String {
@@ -57,6 +60,37 @@ fn default_kind() -> String {
 
 fn unknown_source() -> String {
     "unknown".to_string()
+}
+
+// 부팅 시 자동 실행: HKCU Run 키에 현재 exe 경로를 등록/해제한다.
+// (시작프로그램 폴더 .lnk 는 COM 이 필요해서 레지스트리 방식을 쓴다)
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+const RUN_VALUE: &str = "DevPet";
+
+/// 부팅 시 자동 실행이 켜져 있는지
+#[tauri::command]
+fn get_autostart() -> bool {
+    winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+        .open_subkey(RUN_KEY)
+        .and_then(|k| k.get_value::<String, _>(RUN_VALUE))
+        .is_ok()
+}
+
+/// 부팅 시 자동 실행 켜기/끄기. 켜면 지금 실행 중인 exe 경로가 등록된다.
+#[tauri::command]
+fn set_autostart(enabled: bool) -> Result<(), String> {
+    let (key, _) = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+        .create_subkey(RUN_KEY)
+        .map_err(|e| e.to_string())?;
+    if enabled {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        // 경로에 공백이 있어도 되도록 따옴표로 감싼다
+        let val = format!("\"{}\"", exe.display());
+        key.set_value(RUN_VALUE, &val).map_err(|e| e.to_string())?;
+    } else {
+        let _ = key.delete_value(RUN_VALUE); // 없으면 그냥 무시
+    }
+    Ok(())
 }
 
 /// 외부 URL을 기본 브라우저로 열기
@@ -445,20 +479,50 @@ fn discord_body(done: &TaskDone) -> String {
         ("작업 완료 ✅", 4_113_588) // 청록
     };
     let title = format!(
-        "{} {} · {}",
+        "{} {} · {}{}",
         icon,
         if done.message.is_empty() {
             "작업"
         } else {
             &done.message
         },
-        label
+        label,
+        match fmt_elapsed(done.elapsed_secs) {
+            Some(e) => format!(" ({})", e),
+            None => String::new(),
+        }
     );
     serde_json::json!({
         "username": "DevPet 🐾",
         "embeds": [{ "title": title, "description": done.detail, "color": color }]
     })
     .to_string()
+}
+
+/// 소요 시간(초) → "2분 30초" 같은 표시. 0/1초 미만이면 None(표시 안 함).
+fn fmt_elapsed(secs: u64) -> Option<String> {
+    if secs < 1 {
+        return None;
+    }
+    if secs < 60 {
+        return Some(format!("{}초", secs));
+    }
+    let m = secs / 60;
+    if m < 60 {
+        let r = secs % 60;
+        return Some(if r > 0 {
+            format!("{}분 {}초", m, r)
+        } else {
+            format!("{}분", m)
+        });
+    }
+    let h = m / 60;
+    let rm = m % 60;
+    Some(if rm > 0 {
+        format!("{}시간 {}분", h, rm)
+    } else {
+        format!("{}시간", h)
+    })
 }
 
 /// 알림을 디스코드 웹훅으로 전송 (별도 스레드, 실패 무시)
@@ -579,6 +643,7 @@ fn spawn_notify_server(app: tauri::AppHandle) {
                 },
                 detail: String::new(),
                 hwnd: 0,
+                elapsed_secs: 0,
             });
 
             dispatch_notification(&app, done);
@@ -617,7 +682,9 @@ pub fn run() {
             quit_app,
             focus_window,
             set_discord_webhook,
-            test_discord
+            test_discord,
+            get_autostart,
+            set_autostart
         ])
         .run(tauri::generate_context!())
         .expect("DevPet 실행 중 오류");

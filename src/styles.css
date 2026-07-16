@@ -252,6 +252,26 @@ body.physics .pet:active { cursor: grabbing; }
 .link-btn.claude { background: #d97757; }
 .link-btn.codex { background: #10a37f; }
 
+/* ── 부팅 시 자동 실행 토글 ── */
+.autostart {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 1px;
+  margin-top: 1px;
+}
+.autostart:hover { color: var(--text); }
+.autostart input {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--ok);
+  cursor: pointer;
+  margin: 0;
+}
+
 #close-btn {
   position: fixed;
   top: 2px;

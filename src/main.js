@@ -8,7 +8,7 @@ const win = getCurrentWindow();
 
 const SIZE = {
   collapsed: [260, 176],
-  panel: [260, 320],
+  panel: [260, 352], // 자동 실행 토글 한 줄 추가분 포함
   list: [260, 456],
   listDiscord: [260, 580], // 디스코드 설정 폼 펼쳤을 때
   closeMenu: [260, 360], // × 종료 선택 메뉴. 너비는 다른 뷰와 동일해야(260) 펫·×버튼이 안 밀림. 높이는 패널 top:170 + 내용(~180)이 안 잘리게.
@@ -185,6 +185,20 @@ function relTime(ts) {
 function iconOf(source) {
   return source === "claude" ? "🟠" : source === "codex" ? "🟢" : "🔔";
 }
+/** 소요 시간(초) → "2분 30초". 0/1초 미만이면 빈 문자열(표시 안 함) */
+function fmtElapsed(secs) {
+  const s = Math.floor(secs || 0);
+  if (s < 1) return "";
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  if (m < 60) {
+    const r = s % 60;
+    return r ? `${m}분 ${r}초` : `${m}분`;
+  }
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm ? `${h}시간 ${rm}분` : `${h}시간`;
+}
 function updateBadge() {
   // 배지 = 안 읽은 알림 개수 (리스트 항목 기준이라 채팅별 dedup과 항상 일치)
   const unread = notifs.filter((n) => !n.read).length;
@@ -217,7 +231,14 @@ function renderList() {
     time.textContent = relTime(n.ts);
     title.append(left, time);
     el.appendChild(title);
-    // 세부내용은 표시하지 않음 (제목 + 상태만 간단히)
+    // 세부내용은 표시하지 않고, 완료까지 걸린 시간만 한 줄 덧붙인다(있을 때만)
+    const els = fmtElapsed(n.elapsed);
+    if (els) {
+      const sub = document.createElement("div");
+      sub.className = "n-detail";
+      sub.textContent = `⏱ ${els} 걸렸어요`;
+      el.appendChild(sub);
+    }
     el.addEventListener("click", () => {
       if (n.hwnd) invoke("focus_window", { hwnd: n.hwnd });
     });
@@ -237,6 +258,7 @@ function addNotif(d) {
     hwnd: d.hwnd || 0,
     ts: Date.now(),
     read: view === "list", // 리스트를 보고 있으면 바로 읽음 처리
+    elapsed: d.elapsed_secs || 0, // 완료까지 걸린 초 (0이면 리스트에 표시 안 함)
   });
   saveNotifs();
   updateBadge(); // 배지는 안 읽은 항목 수로 자동 계산(중복 카운트 없음)
@@ -256,7 +278,9 @@ listen("task-done", (e) => {
     ms = 20000;
     tone = "warn";
   } else {
-    text = `${icon} ${title} 작업 완료 ✅`;
+    // 완료엔 걸린 시간을 함께 표시 (있을 때만)
+    const el = fmtElapsed(d.elapsed_secs);
+    text = `${icon} ${title} 작업 완료 ✅${el ? `\n⏱ ${el} 걸렸어요` : ""}`;
     ms = 10000;
     tone = "";
   }
@@ -325,6 +349,24 @@ $("discord-test").addEventListener("click", async (ev) => {
     setDsStatus(res, res.includes("성공") ? "ok" : "err");
   } catch (e) {
     setDsStatus("오류: " + e, "err");
+  }
+});
+
+/* ─────────────── 부팅 시 자동 실행 ─────────────── */
+// 실제 상태는 레지스트리(HKCU Run)에 있으므로 시작 시 거기서 읽어온다.
+const autostartCb = $("autostart-cb");
+invoke("get_autostart")
+  .then((on) => { autostartCb.checked = !!on; })
+  .catch(() => {});
+autostartCb.addEventListener("click", (ev) => ev.stopPropagation()); // 패널 토글로 전파 방지
+autostartCb.addEventListener("change", async (ev) => {
+  ev.stopPropagation();
+  const want = autostartCb.checked;
+  try {
+    await invoke("set_autostart", { enabled: want });
+  } catch (e) {
+    autostartCb.checked = !want; // 실패하면 되돌림
+    showBubble("자동 실행 설정에 실패했어요 😥", 3000, "warn");
   }
 });
 

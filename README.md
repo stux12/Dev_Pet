@@ -28,7 +28,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 ### 방법 A — 설치 파일로 실행 (권장, 가장 간단)
 
 릴리스: https://github.com/stux12/Dev_Pet/releases/latest
-1. `DevPet_0.2.3_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
+1. `DevPet_0.2.4_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
 2. 시작 메뉴에서 **DevPet** 실행
 
 ### 방법 B — 소스에서 빌드
@@ -52,9 +52,9 @@ npm run tauri build
 | 파일 | 경로 | 용도 |
 |------|------|------|
 | 실행 파일 | `src-tauri/target/release/dev-pet.exe` | 설치 없이 **바로 실행** |
-| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.3_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
+| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.4_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
 
-- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.3_x64_en-US.msi`
+- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.4_x64_en-US.msi`
 - 파일 탐색기 주소창에 `src-tauri\target\release\bundle\msi` 를 붙여넣으면 해당 폴더가 열립니다.
 - ⚠️ `target/` 폴더는 `.gitignore`로 **저장소에는 포함되지 않습니다.** 각자 `npm run tauri build`로 생성하세요.
 - 다른 PC에 배포하려면 **`.msi` 파일 하나만** 넘겨주면 됩니다.
@@ -103,14 +103,9 @@ npm run tauri dev
 🔔 → 🎮 버튼 → 펫이 중력의 영향을 받는 공이 됩니다. 마우스로 들어 높은 곳에서 놓으면 통통 튀다가 바닥에 안착. **종료**: 펫 더블클릭 / 🎮 다시 클릭 / 🔔 클릭.
 
 ### 7. 부팅 시 자동 실행
-시작프로그램 폴더에 실행 파일 바로가기를 넣으면 됩니다 (경로는 본인 환경에 맞게):
-```powershell
-$lnk = Join-Path ([Environment]::GetFolderPath('Startup')) "DevPet.lnk"
-$sc  = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
-$sc.TargetPath = "<설치경로>\dev-pet.exe"   # 예: ...\src-tauri\target\release\dev-pet.exe
-$sc.Save()
-```
-해제: 위 `DevPet.lnk` 삭제 또는 **작업 관리자 > 시작 프로그램**에서 "사용 안 함".
+펫 클릭 → 상태 패널 → **부팅 시 자동 실행** 체크. 끄려면 체크 해제하면 됩니다.
+
+> 체크하면 현재 실행 중인 exe 경로가 레지스트리(`HKCU\...\CurrentVersion\Run`)에 등록됩니다. 앱을 다른 위치로 옮겼다면 체크를 껐다 켜서 경로를 갱신하세요.
 
 ---
 
@@ -171,6 +166,11 @@ MIT
 ## 🗒️ 업데이트 이력
 
 > 커밋이 있을 때마다 무엇을 바꿨는지 여기에 간략히 기록합니다. (최신순)
+
+### 2026-07-15 · v0.2.4
+- **완료 알림에 걸린 시간 표시** — `작업 완료 ✅` 아래에 `⏱ 2분 30초 걸렸어요`처럼 **사용자 프롬프트부터 완료까지** 걸린 시간을 함께 보여줍니다(디스코드 알림에도). Claude·Codex 모두 지원.
+- **부팅 시 자동 실행 토글** — 상태 패널에 체크박스를 추가했습니다. 이전엔 README의 PowerShell 스크립트를 직접 실행해야 했습니다.
+- **watcher 유닛테스트 추가(11건)** — 완료 판정(`stop_reason` 기반)과 소요 시간 계산을 테스트로 고정했습니다. v0.1.9에서 겪었던 "CLI 중간 텍스트를 완료로 오탐" 같은 버그가 다시 생기지 않도록 하는 안전망입니다.
 
 ### 2026-07-15 · v0.2.3
 - **완전 종료 시 훅 자동 해제** — 앱을 **완전 종료**하면 `settings.json`의 DevPet 훅과 훅 스크립트를 정리합니다. 앱이 꺼져 있으면 알림을 받을 수 없어 훅이 헛돌 이유가 없고, 앱을 지운 뒤 설정만 남는 것도 방지합니다. **다시 켜면 자동 재등록**되므로 재설정은 필요 없습니다. (사용자가 쓰던 다른 훅은 그대로 보존)

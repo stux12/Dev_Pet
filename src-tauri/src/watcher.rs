@@ -37,14 +37,36 @@ struct FState {
     tail_candidate: bool,
     notified: String,
     quiet: u32,
+    /// 마지막 '실제 사용자 프롬프트' 시각 = 턴 시작 (소요 시간 계산용).
+    /// tool_result 는 텍스트가 없어 자연히 걸러진다.
+    turn_start_ts: String,
     // Codex
     codex_id: String, // 세션 UUID (파일명에서 추출)
     codex_title: String,
     codex_notified: String,
+    codex_turn_start_ts: String,
 }
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var("USERPROFILE").unwrap_or_else(|_| ".".into()))
+}
+
+/// 두 RFC3339 타임스탬프 사이 초. 파싱 불가하거나 음수면 0(=표시 안 함).
+fn elapsed_secs(start: &str, end: &str) -> u64 {
+    let s = match OffsetDateTime::parse(start, &Rfc3339) {
+        Ok(t) => t,
+        Err(_) => return 0,
+    };
+    let e = match OffsetDateTime::parse(end, &Rfc3339) {
+        Ok(t) => t,
+        Err(_) => return 0,
+    };
+    let secs = (e - s).whole_seconds();
+    if secs < 0 {
+        0
+    } else {
+        secs as u64
+    }
 }
 
 /// 완료 타임스탬프가 앱 시작 이후인지 (과거 완료 무시)
@@ -181,6 +203,7 @@ fn process(app: &AppHandle, path: &Path, is_codex: bool, st: &mut FState) {
                     message: short(&title, 30),
                     detail: short(&st.last_assistant, 55),
                     hwnd: 0,
+                    elapsed_secs: elapsed_secs(&st.turn_start_ts, &st.cand_ts),
                 },
             );
             st.notified = st.cand_marker.clone();
@@ -312,6 +335,8 @@ fn process_claude_line(st: &mut FState, v: &Value) {
             let t = user_text(&v["message"]["content"]);
             if !t.is_empty() {
                 st.last_user = t;
+                // 텍스트가 있는 user 줄 = 실제 사용자 프롬프트(tool_result 아님) → 턴 시작
+                st.turn_start_ts = v["timestamp"].as_str().unwrap_or("").to_string();
             }
             st.tail_candidate = false;
         }
@@ -345,12 +370,14 @@ fn process_claude_line(st: &mut FState, v: &Value) {
 }
 
 fn process_codex_line(app: &AppHandle, st: &mut FState, v: &Value) {
-    // 제목: 첫 사용자 입력에서
-    if st.codex_title.is_empty() {
-        if let Some(t) = codex_user_text(v) {
-            if !t.is_empty() {
+    if let Some(t) = codex_user_text(v) {
+        if !t.is_empty() {
+            // 제목: 첫 사용자 입력에서
+            if st.codex_title.is_empty() {
                 st.codex_title = t;
             }
+            // 턴 시작: 가장 최근 사용자 입력 (소요 시간 계산용)
+            st.codex_turn_start_ts = v["timestamp"].as_str().unwrap_or("").to_string();
         }
     }
     // 완료: task_complete 이벤트
@@ -391,6 +418,7 @@ fn process_codex_line(app: &AppHandle, st: &mut FState, v: &Value) {
                 message: short(&title, 30),
                 detail: short(msg, 55),
                 hwnd: 0,
+                elapsed_secs: elapsed_secs(&st.codex_turn_start_ts, ts),
             },
         );
     }
@@ -526,5 +554,174 @@ fn codex_user_text(v: &Value) -> Option<String> {
         None // 주입 텍스트는 제목으로 쓰지 않고 다음 후보를 찾게 함
     } else {
         Some(text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(json: &str) -> Value {
+        serde_json::from_str(json).expect("test fixture must be valid json")
+    }
+
+    /// CLI 는 thinking/text/tool_use 를 각각 별도 줄로 기록한다. 도구 호출 직전의
+    /// 중간 설명 텍스트는 "text 있고 도구 없음"이라 stop_reason 없이는 완료로 오탐된다.
+    /// (v0.1.9 에서 실제로 발생했던 버그)
+    #[test]
+    fn cli_intermediate_text_before_tool_is_not_complete() {
+        let mut st = FState::default();
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"assistant","uuid":"u1","timestamp":"2026-07-15T08:00:00.000Z",
+                 "message":{"stop_reason":"tool_use","content":[{"type":"text","text":"확인해볼게요"}]}}"#),
+        );
+        assert!(!st.tail_candidate, "stop_reason=tool_use 는 완료가 아니다");
+    }
+
+    #[test]
+    fn end_turn_with_text_is_complete() {
+        let mut st = FState::default();
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"assistant","uuid":"u2","timestamp":"2026-07-15T08:00:01.000Z",
+                 "message":{"stop_reason":"end_turn","content":[{"type":"text","text":"다 됐어요"}]}}"#),
+        );
+        assert!(st.tail_candidate);
+        assert_eq!(st.cand_marker, "u2");
+        assert_eq!(st.last_assistant, "다 됐어요");
+    }
+
+    /// 완료 응답이 thinking/text 두 줄로 쪼개질 때, 두 줄 모두 stop_reason=end_turn 을
+    /// 갖는다. text 가 없는 thinking 줄에서 성급히 알리면 내용 없는 알림이 뜬다.
+    #[test]
+    fn end_turn_thinking_without_text_is_not_complete() {
+        let mut st = FState::default();
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"assistant","uuid":"u3","timestamp":"2026-07-15T08:00:02.000Z",
+                 "message":{"stop_reason":"end_turn","content":[{"type":"thinking","thinking":"음..."}]}}"#),
+        );
+        assert!(!st.tail_candidate, "text 없는 end_turn 은 완료 후보가 아니다");
+    }
+
+    #[test]
+    fn tool_use_line_is_not_complete() {
+        let mut st = FState::default();
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"assistant","uuid":"u4","timestamp":"2026-07-15T08:00:03.000Z",
+                 "message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}"#),
+        );
+        assert!(!st.tail_candidate);
+    }
+
+    /// stop_reason 이 없는 구형 기록은 "text 있고 도구 없음" 휴리스틱으로 폴백한다.
+    #[test]
+    fn legacy_without_stop_reason_uses_heuristic() {
+        let mut st = FState::default();
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"assistant","uuid":"u5","timestamp":"2026-07-15T08:00:04.000Z",
+                 "message":{"content":[{"type":"text","text":"끝"}]}}"#),
+        );
+        assert!(st.tail_candidate, "구형: text 만 있으면 완료");
+
+        let mut st2 = FState::default();
+        process_claude_line(
+            &mut st2,
+            &v(r#"{"type":"assistant","uuid":"u6","timestamp":"2026-07-15T08:00:05.000Z",
+                 "message":{"content":[{"type":"text","text":"실행할게요"},{"type":"tool_use","name":"Bash","input":{}}]}}"#),
+        );
+        assert!(!st2.tail_candidate, "구형: text+도구 가 한 줄이면 완료 아님");
+    }
+
+    /// tool_result(user 줄)가 도착하면 이전 완료 후보는 무효가 된다.
+    #[test]
+    fn user_line_clears_candidate() {
+        let mut st = FState::default();
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"assistant","uuid":"u7","timestamp":"2026-07-15T08:00:06.000Z",
+                 "message":{"stop_reason":"end_turn","content":[{"type":"text","text":"완료"}]}}"#),
+        );
+        assert!(st.tail_candidate);
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"user","timestamp":"2026-07-15T08:00:07.000Z",
+                 "message":{"content":[{"type":"tool_result","content":"ok"}]}}"#),
+        );
+        assert!(!st.tail_candidate);
+    }
+
+    #[test]
+    fn titles_are_tracked() {
+        let mut st = FState::default();
+        process_claude_line(&mut st, &v(r#"{"type":"custom-title","customTitle":"내 작업"}"#));
+        process_claude_line(&mut st, &v(r#"{"type":"ai-title","aiTitle":"AI 제목"}"#));
+        assert_eq!(st.custom_title, "내 작업");
+        assert_eq!(st.ai_title, "AI 제목");
+    }
+
+    #[test]
+    fn assistant_content_extracts_text_and_tool_flag() {
+        let (text, has_tool) = assistant_content(&v(
+            r#"[{"type":"text","text":"a"},{"type":"tool_use","name":"Read","input":{}}]"#,
+        ));
+        assert_eq!(text, "a");
+        assert!(has_tool);
+
+        let (text2, has_tool2) = assistant_content(&v(r#""그냥 문자열""#));
+        assert_eq!(text2, "그냥 문자열");
+        assert!(!has_tool2);
+    }
+
+    /// 소요 시간은 '실제 사용자 프롬프트'부터 잰다. 도중의 tool_result 는 턴 시작이 아니다.
+    #[test]
+    fn elapsed_is_measured_from_user_prompt_not_tool_result() {
+        let mut st = FState::default();
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"user","timestamp":"2026-07-15T08:00:00.000Z","message":{"content":"작업해줘"}}"#),
+        );
+        assert_eq!(st.turn_start_ts, "2026-07-15T08:00:00.000Z");
+
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"user","timestamp":"2026-07-15T08:00:30.000Z",
+                 "message":{"content":[{"type":"tool_result","content":"ok"}]}}"#),
+        );
+        assert_eq!(
+            st.turn_start_ts, "2026-07-15T08:00:00.000Z",
+            "tool_result 는 턴 시작을 갱신하면 안 된다"
+        );
+
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"assistant","uuid":"u1","timestamp":"2026-07-15T08:02:30.000Z",
+                 "message":{"stop_reason":"end_turn","content":[{"type":"text","text":"끝"}]}}"#),
+        );
+        assert_eq!(elapsed_secs(&st.turn_start_ts, &st.cand_ts), 150);
+    }
+
+    #[test]
+    fn elapsed_secs_handles_bad_input() {
+        assert_eq!(elapsed_secs("", ""), 0);
+        assert_eq!(elapsed_secs("nonsense", "2026-07-15T08:00:00.000Z"), 0);
+        assert_eq!(
+            elapsed_secs("2026-07-15T08:01:00.000Z", "2026-07-15T08:00:00.000Z"),
+            0,
+            "역순이면 0"
+        );
+    }
+
+    /// 주입된 시스템/환경 컨텍스트는 제목으로 쓰지 않는다.
+    #[test]
+    fn noise_is_rejected_as_title() {
+        assert!(is_noise("<environment_context>"));
+        assert!(is_noise("{\"approved\":true}"));
+        assert!(is_noise("You are a helpful assistant"));
+        assert!(is_noise("   "));
+        assert!(!is_noise("메모리 확인하고 DevPet 이어서 작업하자"));
     }
 }
