@@ -28,7 +28,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 ### 방법 A — 설치 파일로 실행 (권장, 가장 간단)
 
 릴리스: https://github.com/stux12/Dev_Pet/releases/latest
-1. `DevPet_0.2.2_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
+1. `DevPet_0.2.3_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
 2. 시작 메뉴에서 **DevPet** 실행
 
 ### 방법 B — 소스에서 빌드
@@ -52,9 +52,9 @@ npm run tauri build
 | 파일 | 경로 | 용도 |
 |------|------|------|
 | 실행 파일 | `src-tauri/target/release/dev-pet.exe` | 설치 없이 **바로 실행** |
-| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.2_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
+| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.3_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
 
-- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.2_x64_en-US.msi`
+- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.3_x64_en-US.msi`
 - 파일 탐색기 주소창에 `src-tauri\target\release\bundle\msi` 를 붙여넣으면 해당 폴더가 열립니다.
 - ⚠️ `target/` 폴더는 `.gitignore`로 **저장소에는 포함되지 않습니다.** 각자 `npm run tauri build`로 생성하세요.
 - 다른 PC에 배포하려면 **`.msi` 파일 하나만** 넘겨주면 됩니다.
@@ -125,6 +125,8 @@ $sc.Save()
 
 > **완료는 감시, 승인은 훅 — 왜 나눴나?** Claude Code **데스크탑 앱은 command 훅을 실행하지 않아**(CLI만 실행) 완료 감지는 파일 감시로 CLI·데스크탑을 모두 커버합니다. 반면 승인 대기는 파일에 흔적이 남지 않으므로 CLI 훅으로만 잡을 수 있습니다.
 
+**훅 설치/해제**: 앱을 켜면 훅이 자동 등록되고, **완전 종료**하면 자동 해제됩니다(스크립트 삭제 + `settings.json` 정리). 단, 작업 관리자로 **강제 종료**하거나 앱을 **완전 종료 없이 삭제**한 경우엔 훅이 남을 수 있습니다 — 그때는 `~/.claude/devpet-approval-hook.ps1` 파일과 `settings.json`의 `hooks.Notification` 안 DevPet 항목을 지우면 됩니다. (남아 있어도 DevPet이 꺼져 있으면 전송만 조용히 실패할 뿐 해롭진 않습니다)
+
 **한계**: 승인 알림은 훅을 실행하는 **Claude Code CLI에서만** 동작합니다(데스크탑 앱·Codex는 승인을 앱/샌드박스가 자체 처리). Codex는 `sandbox=elevated`면 자동 승인이라 승인 요청이 없습니다.
 
 수동 테스트용 로컬 엔드포인트도 있습니다: `POST http://127.0.0.1:37651/notify` — body `{source,kind,message,detail}`.
@@ -169,6 +171,10 @@ MIT
 ## 🗒️ 업데이트 이력
 
 > 커밋이 있을 때마다 무엇을 바꿨는지 여기에 간략히 기록합니다. (최신순)
+
+### 2026-07-15 · v0.2.3
+- **완전 종료 시 훅 자동 해제** — 앱을 **완전 종료**하면 `settings.json`의 DevPet 훅과 훅 스크립트를 정리합니다. 앱이 꺼져 있으면 알림을 받을 수 없어 훅이 헛돌 이유가 없고, 앱을 지운 뒤 설정만 남는 것도 방지합니다. **다시 켜면 자동 재등록**되므로 재설정은 필요 없습니다. (사용자가 쓰던 다른 훅은 그대로 보존)
+- **훅 제목 추출 성능 개선** — 승인 알림 때 transcript **전체**를 파싱하던 것을 **파일 끝 512KB만** 읽도록 변경. 13.7MB(4,240줄) 세션 기준 **723ms → 326ms**로 빨라졌고, 세션이 더 커져도 시간이 늘지 않습니다(기존엔 크기에 비례해 증가).
 
 ### 2026-07-15 · v0.2.2
 - **질문/입력 대기 알림 추가** — 기존엔 권한 확인(`permission_prompt`)만 알렸는데, Claude가 **질문을 던지고 답을 기다릴 때**(`agent_needs_input`)도 알림이 오도록 확장했습니다. 알림 문구로 구분됩니다 — 확인 필요는 `확인이 필요해요 🔔`, 입력 대기는 `입력을 기다리고 있어요 ✋`. (유휴 `idle_prompt`는 완료 알림과 중복이라 제외)

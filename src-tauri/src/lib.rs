@@ -74,6 +74,7 @@ fn set_mute(muted: bool) {
 /// 앱을 완전히 종료 (백그라운드 유지가 아니라 프로세스 자체를 끔)
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
+    unregister_claude_hook(); // 알림도 중지되므로 훅도 함께 해제(다음 실행 시 재등록)
     app.exit(0);
 }
 
@@ -98,7 +99,10 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "tray_show" => show_pet(app),
-            "tray_quit" => app.exit(0),
+            "tray_quit" => {
+                unregister_claude_hook();
+                app.exit(0);
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -203,16 +207,40 @@ $title = ""
 $tp = $d.transcript_path
 if ($tp -and (Test-Path $tp)) {
     $custom = ""; $ai = ""; $lastUser = ""
-    foreach ($line in [System.IO.File]::ReadLines($tp)) {
-        if (-not $line.Trim()) { continue }
+    # 제목 메타(custom-title/ai-title)는 턴마다 기록되므로 파일 꼬리만 보면 충분.
+    # 전체 파싱은 큰 세션(수 MB)에서 느리고, Get-Content -Tail 은 대용량에서 매우 느리므로
+    # (13MB 기준 6초+) FileStream 으로 끝 512KB 만 직접 읽는다(같은 파일 기준 ~60ms).
+    $tail = @()
+    try {
+        $fs = [System.IO.File]::Open($tp, 'Open', 'Read', 'ReadWrite')
+        $flen = $fs.Length
+        $take = [Math]::Min($flen, 524288)
+        [void]$fs.Seek(-$take, 'End')
+        $buf = New-Object byte[] $take
+        [void]$fs.Read($buf, 0, $take)
+        $fs.Close()
+        $parts = [System.Text.Encoding]::UTF8.GetString($buf) -split "`n"
+        # 앞이 잘린 첫 줄은 버린다(파일 중간부터 읽었을 때만).
+        if ($flen -gt $take -and $parts.Count -gt 1) { $parts = $parts[1..($parts.Count - 1)] }
+        $tail = $parts
+    } catch { $tail = @() }
+    for ($i = $tail.Count - 1; $i -ge 0; $i--) {
+        if ($custom -and $ai -and $lastUser) { break }
+        $line = $tail[$i]
+        if (-not $line) { continue }
+        # JSON 파싱 전 문자열 프리필터 — assistant/도구 줄(대다수)은 파싱 없이 건너뛴다.
+        if ($line -notmatch '"type":"(custom-title|ai-title|user)"') { continue }
         try { $o = $line | ConvertFrom-Json } catch { continue }
+        # 역순이라 먼저 만난 것이 최신 값 → 이미 채워졌으면 건너뛴다.
         switch ($o.type) {
-            "custom-title" { if ($o.customTitle) { $custom = $o.customTitle } }
-            "ai-title"     { if ($o.aiTitle)     { $ai = $o.aiTitle } }
+            "custom-title" { if (-not $custom -and $o.customTitle) { $custom = $o.customTitle } }
+            "ai-title"     { if (-not $ai -and $o.aiTitle)         { $ai = $o.aiTitle } }
             "user" {
-                $c = $o.message.content
-                if ($c -is [string]) { if ($c.Trim()) { $lastUser = $c } }
-                elseif ($c) { foreach ($p in $c) { if ($p.type -eq "text" -and $p.text) { $lastUser = $p.text } } }
+                if (-not $lastUser) {
+                    $c = $o.message.content
+                    if ($c -is [string]) { if ($c.Trim()) { $lastUser = $c } }
+                    elseif ($c) { foreach ($p in $c) { if ($p.type -eq "text" -and $p.text) { $lastUser = $p.text } } }
+                }
             }
         }
     }
@@ -281,6 +309,53 @@ fn register_claude_hook() {
             "matcher": matcher,
             "hooks": [{ "type": "command", "command": cmd, "timeout": 10 }]
         }));
+    }
+    if let Ok(s) = serde_json::to_string_pretty(&root) {
+        let _ = std::fs::write(&settings_path, s);
+    }
+}
+
+/// 완전 종료 시 훅 해제: 스크립트 삭제 + settings.json 의 DevPet 훅 제거(빈 컨테이너도 정리).
+/// 앱이 꺼져 있으면 알림을 받을 수 없으니 훅이 헛돌 이유가 없고, 앱을 지운 뒤 설정만 남는
+/// 것도 막는다. 다음 실행 때 register_claude_hook 이 다시 등록하므로 재설정은 불필요.
+fn unregister_claude_hook() {
+    let home = match std::env::var("USERPROFILE") {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    let claude_dir = std::path::Path::new(&home).join(".claude");
+    if !claude_dir.is_dir() {
+        return;
+    }
+    let _ = std::fs::remove_file(claude_dir.join("devpet-approval-hook.ps1"));
+    let settings_path = claude_dir.join("settings.json");
+    let mut root: serde_json::Value = match std::fs::read_to_string(&settings_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .filter(|v| v.is_object())
+    {
+        Some(v) => v,
+        None => return,
+    };
+    let obj = root.as_object_mut().unwrap();
+    if let Some(hooks) = obj.get_mut("hooks").and_then(|h| h.as_object_mut()) {
+        let mut notif_empty = false;
+        if let Some(arr) = hooks.get_mut("Notification").and_then(|n| n.as_array_mut()) {
+            arr.retain(|e| !e.to_string().contains("devpet-approval-hook.ps1"));
+            notif_empty = arr.is_empty();
+        }
+        if notif_empty {
+            hooks.remove("Notification");
+        }
+    }
+    // 우리가 만든 빈 컨테이너는 남기지 않는다(사용자가 원래 쓰던 다른 훅은 그대로 보존).
+    let hooks_empty = obj
+        .get("hooks")
+        .and_then(|h| h.as_object())
+        .map(|h| h.is_empty())
+        .unwrap_or(false);
+    if hooks_empty {
+        obj.remove("hooks");
     }
     if let Ok(s) = serde_json::to_string_pretty(&root) {
         let _ = std::fs::write(&settings_path, s);
