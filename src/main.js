@@ -199,6 +199,23 @@ function fmtElapsed(secs) {
   const rm = m % 60;
   return rm ? `${h}시간 ${rm}분` : `${h}시간`;
 }
+/** 토큰 수 → "12k". 0이면 빈 문자열(표시 안 함) */
+function fmtTokens(n) {
+  const t = Math.floor(n || 0);
+  if (t < 1) return "";
+  if (t < 1000) return String(t);
+  if (t < 1000000) return `${(t / 1000).toFixed(t < 10000 ? 1 : 0)}k`;
+  return `${(t / 1000000).toFixed(1)}M`;
+}
+/** 완료 알림의 부가정보 한 줄: "⏱ 2분 30초 · 🪙 12k 토큰" (없으면 빈 문자열) */
+function metaLine(d) {
+  const parts = [];
+  const el = fmtElapsed(d.elapsed_secs ?? d.elapsed);
+  if (el) parts.push(`⏱ ${el}`);
+  const tk = fmtTokens(d.tokens);
+  if (tk) parts.push(`🪙 ${tk} 토큰`);
+  return parts.join(" · ");
+}
 function updateBadge() {
   // 배지 = 안 읽은 알림 개수 (리스트 항목 기준이라 채팅별 dedup과 항상 일치)
   const unread = notifs.filter((n) => !n.read).length;
@@ -231,12 +248,12 @@ function renderList() {
     time.textContent = relTime(n.ts);
     title.append(left, time);
     el.appendChild(title);
-    // 세부내용은 표시하지 않고, 완료까지 걸린 시간만 한 줄 덧붙인다(있을 때만)
-    const els = fmtElapsed(n.elapsed);
-    if (els) {
+    // 세부내용 대신 걸린 시간·쓴 토큰만 한 줄 덧붙인다(있을 때만)
+    const meta = metaLine(n);
+    if (meta) {
       const sub = document.createElement("div");
       sub.className = "n-detail";
-      sub.textContent = `⏱ ${els} 걸렸어요`;
+      sub.textContent = meta;
       el.appendChild(sub);
     }
     el.addEventListener("click", () => {
@@ -259,6 +276,7 @@ function addNotif(d) {
     ts: Date.now(),
     read: view === "list", // 리스트를 보고 있으면 바로 읽음 처리
     elapsed: d.elapsed_secs || 0, // 완료까지 걸린 초 (0이면 리스트에 표시 안 함)
+    tokens: d.tokens || 0, // 이번 작업에 쓴 토큰
   });
   saveNotifs();
   updateBadge(); // 배지는 안 읽은 항목 수로 자동 계산(중복 카운트 없음)
@@ -278,9 +296,9 @@ listen("task-done", (e) => {
     ms = 20000;
     tone = "warn";
   } else {
-    // 완료엔 걸린 시간을 함께 표시 (있을 때만)
-    const el = fmtElapsed(d.elapsed_secs);
-    text = `${icon} ${title} 작업 완료 ✅${el ? `\n⏱ ${el} 걸렸어요` : ""}`;
+    // 완료엔 걸린 시간·쓴 토큰을 함께 표시 (있을 때만)
+    const meta = metaLine(d);
+    text = `${icon} ${title} 작업 완료 ✅${meta ? `\n${meta}` : ""}`;
     ms = 10000;
     tone = "";
   }

@@ -52,6 +52,9 @@ pub(crate) struct TaskDone {
     /// 사용자 프롬프트 ~ 완료까지 걸린 초. 0 이면 표시하지 않음.
     #[serde(default)]
     pub elapsed_secs: u64,
+    /// 이번 작업에 쓴 토큰(입력+캐시생성+출력, 캐시 읽기 제외). 0 이면 표시하지 않음.
+    #[serde(default)]
+    pub tokens: u64,
 }
 
 fn default_kind() -> String {
@@ -487,9 +490,19 @@ fn discord_body(done: &TaskDone) -> String {
             &done.message
         },
         label,
-        match fmt_elapsed(done.elapsed_secs) {
-            Some(e) => format!(" ({})", e),
-            None => String::new(),
+        {
+            let mut meta: Vec<String> = Vec::new();
+            if let Some(e) = fmt_elapsed(done.elapsed_secs) {
+                meta.push(e);
+            }
+            if let Some(t) = fmt_tokens(done.tokens) {
+                meta.push(format!("{} 토큰", t));
+            }
+            if meta.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", meta.join(" · "))
+            }
         }
     );
     serde_json::json!({
@@ -497,6 +510,25 @@ fn discord_body(done: &TaskDone) -> String {
         "embeds": [{ "title": title, "description": done.detail, "color": color }]
     })
     .to_string()
+}
+
+/// 토큰 수 → "12k" 같은 짧은 표시. 0 이면 None(표시 안 함).
+fn fmt_tokens(n: u64) -> Option<String> {
+    if n < 1 {
+        return None;
+    }
+    if n < 1_000 {
+        return Some(n.to_string());
+    }
+    if n < 1_000_000 {
+        let k = n as f64 / 1000.0;
+        return Some(if n < 10_000 {
+            format!("{:.1}k", k)
+        } else {
+            format!("{:.0}k", k)
+        });
+    }
+    Some(format!("{:.1}M", n as f64 / 1_000_000.0))
 }
 
 /// 소요 시간(초) → "2분 30초" 같은 표시. 0/1초 미만이면 None(표시 안 함).
@@ -644,6 +676,7 @@ fn spawn_notify_server(app: tauri::AppHandle) {
                 detail: String::new(),
                 hwnd: 0,
                 elapsed_secs: 0,
+                tokens: 0,
             });
 
             dispatch_notification(&app, done);

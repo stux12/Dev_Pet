@@ -28,7 +28,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 ### 방법 A — 설치 파일로 실행 (권장, 가장 간단)
 
 릴리스: https://github.com/stux12/Dev_Pet/releases/latest
-1. `DevPet_0.2.5_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
+1. `DevPet_0.2.6_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
 2. 시작 메뉴에서 **DevPet** 실행
 
 ### 방법 B — 소스에서 빌드
@@ -52,9 +52,9 @@ npm run tauri build
 | 파일 | 경로 | 용도 |
 |------|------|------|
 | 실행 파일 | `src-tauri/target/release/dev-pet.exe` | 설치 없이 **바로 실행** |
-| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.5_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
+| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.6_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
 
-- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.5_x64_en-US.msi`
+- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.6_x64_en-US.msi`
 - 파일 탐색기 주소창에 `src-tauri\target\release\bundle\msi` 를 붙여넣으면 해당 폴더가 열립니다.
 - ⚠️ `target/` 폴더는 `.gitignore`로 **저장소에는 포함되지 않습니다.** 각자 `npm run tauri build`로 생성하세요.
 - 다른 PC에 배포하려면 **`.msi` 파일 하나만** 넘겨주면 됩니다.
@@ -113,7 +113,7 @@ npm run tauri dev
 
 펫 앱이 AI 도구의 **대화 기록 파일을 직접 감시**합니다. 훅 설정이 필요 없고, CLI·데스크탑 앱·Codex를 모두 커버합니다.
 
-- **완료(Claude)**: `%USERPROFILE%\.claude\projects\*\*.jsonl` 감시 — 응답의 `stop_reason`이 `end_turn`이면 완료. 제목은 대화창 이름.
+- **완료(Claude)**: `%USERPROFILE%\.claude\projects\*\*.jsonl` 감시 — 응답의 `stop_reason`이 `end_turn`이면 완료. 제목은 대화창 이름. 걸린 시간과 쓴 토큰(`usage`, `requestId`로 dedup)도 함께 집계.
 - **완료(Codex)**: `%USERPROFILE%\.codex\sessions\**\*.jsonl` — `task_complete` 이벤트 감지.
 - **승인 대기 — CLI**: CLI의 **Notification 훅**으로 감지 — `permission_prompt`(권한 확인 대기) / `agent_needs_input`(질문 등 입력 대기). 앱이 시작 시 훅 스크립트를 `~/.claude`에 설치하고 `settings.json`에 자동 등록합니다(별도 설정 불필요).
 - **승인 대기 — 데스크탑 앱**: **파일 감시로 추정**합니다. 마지막이 권한 필요 도구(Bash·PowerShell·Write·Edit 등) 호출이고 결과 없이 **약 15초** 조용하면 알림. 읽기 전용 도구(Read·Grep 등)는 제외합니다.
@@ -156,7 +156,7 @@ pet-app/
 ## 📝 참고 / 한계
 
 - **Windows 전용** (WebView2 + `windows` 크레이트 사용).
-- 토큰 잔량 API가 없어 사용량은 **페이지 링크**로 대체합니다.
+- 토큰 **잔량** API가 없어 사용량 페이지는 링크로 대체합니다. (작업별 사용 토큰은 기록의 `usage`에서 집계해 완료 알림에 표시)
 - 승인 알림: CLI는 Notification 훅(정확), 데스크탑 앱은 파일 감시 추정(긴 자동 실행 오탐 가능).
 - 디스코드 전송은 CORS 회피를 위해 Rust에서 처리합니다.
 
@@ -171,6 +171,12 @@ MIT
 ## 🗒️ 업데이트 이력
 
 > 커밋이 있을 때마다 무엇을 바꿨는지 여기에 간략히 기록합니다. (최신순)
+
+### 2026-07-16 · v0.2.6
+- **완료 알림에 쓴 토큰 표시** — `⏱ 2분 30초 · 🪙 12k 토큰`처럼 **이번 작업에 쓴 토큰**을 함께 보여줍니다(말풍선 · 알림 리스트 · 디스코드). 기록의 `usage`에서 집계합니다.
+  - **입력 + 캐시 생성 + 출력**을 셉니다. **캐시 읽기는 제외** — 컨텍스트 재사용분이라 입력의 대부분(수십만)을 차지해서, 포함하면 정작 이 작업이 얼마나 무거웠는지 가늠이 안 됩니다.
+  - 한 응답이 `thinking`·`text`·`tool_use` 여러 줄로 쪼개지면서 **`usage`가 그대로 복제**되므로, `requestId`로 중복을 제거합니다(안 하면 2~3배로 부풀려짐).
+  - Codex는 기록에 `usage`가 없어 표시되지 않습니다.
 
 ### 2026-07-16 · v0.2.5
 - **데스크탑 앱 승인 알림 추가** — 데스크탑 앱은 훅을 실행하지 않아 승인 알림이 오지 않았습니다. 조사해보니 **데스크탑 앱은 승인 대기 중에도 도구 호출을 기록 파일에 남긴다**는 걸 발견했습니다(CLI는 승인 후에야 남깁니다 — 정반대). 이를 이용해 **데스크탑 세션에 한해 파일 감시로 승인 대기를 추정**합니다(권한 필요 도구 호출 후 약 **15초** 조용하면 알림). 세션 출처는 기록의 `entrypoint`(`cli`/`claude-desktop`)로 구분하며, CLI는 기존대로 훅이 정확히 처리합니다.

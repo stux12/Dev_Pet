@@ -4,7 +4,7 @@
 // 앱 시작 이후 타임스탬프의 완료만 알림(과거 완료 무시). 파일은 증분으로만 읽음.
 use crate::{dispatch_notification, short, TaskDone};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -51,6 +51,11 @@ struct FState {
     turn_start_ts: String,
     /// entrypoint == "claude-desktop" (데스크탑 앱 세션). 승인 추정은 여기서만 한다.
     is_desktop: bool,
+    /// 이번 턴에 쓴 토큰 합. 사용자 프롬프트에서 리셋.
+    turn_tokens: u64,
+    /// 이번 턴에 이미 집계한 requestId. 한 응답이 thinking/text/tool_use 여러 줄로
+    /// 쪼개지면서 usage 가 그대로 복제되므로, 줄마다 더하면 중복 합산된다.
+    turn_reqs: HashSet<String>,
     // 승인 대기 추정 (데스크탑 전용): 마지막이 '권한 필요' 도구호출이고 결과 없이 조용할 때
     pending_tool: bool,
     pending_marker: String,
@@ -67,6 +72,14 @@ struct FState {
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var("USERPROFILE").unwrap_or_else(|_| ".".into()))
+}
+
+/// usage → 이번 응답에서 '새로 처리한' 토큰 (입력 + 캐시 생성 + 출력).
+/// 캐시 읽기(cache_read_input_tokens)는 컨텍스트 재사용분이라 제외한다 — 입력의
+/// 대부분(수십만)을 차지해서 포함하면 정작 이 작업이 얼마나 무거웠는지 가늠이 안 된다.
+fn usage_tokens(u: &Value) -> u64 {
+    let g = |k: &str| u[k].as_u64().unwrap_or(0);
+    g("input_tokens") + g("cache_creation_input_tokens") + g("output_tokens")
 }
 
 /// 두 RFC3339 타임스탬프 사이 초. 파싱 불가하거나 음수면 0(=표시 안 함).
@@ -224,6 +237,7 @@ fn process(app: &AppHandle, path: &Path, is_codex: bool, st: &mut FState) {
                     detail: short(&st.last_assistant, 55),
                     hwnd: 0,
                     elapsed_secs: elapsed_secs(&st.turn_start_ts, &st.cand_ts),
+                    tokens: st.turn_tokens,
                 },
             );
             st.notified = st.cand_marker.clone();
@@ -246,6 +260,7 @@ fn process(app: &AppHandle, path: &Path, is_codex: bool, st: &mut FState) {
                     detail: short(&st.pending_detail, 55),
                     hwnd: 0,
                     elapsed_secs: 0,
+                    tokens: 0, // 승인 대기 시점엔 아직 집계할 게 없다
                 },
             );
             st.approval_notified = st.pending_marker.clone();
@@ -384,11 +399,19 @@ fn process_claude_line(st: &mut FState, v: &Value) {
                 st.last_user = t;
                 // 텍스트가 있는 user 줄 = 실제 사용자 프롬프트(tool_result 아님) → 턴 시작
                 st.turn_start_ts = v["timestamp"].as_str().unwrap_or("").to_string();
+                st.turn_tokens = 0;
+                st.turn_reqs.clear();
             }
             st.tail_candidate = false;
             st.pending_tool = false; // tool_result 도착 = 승인되어 실행됨
         }
         Some("assistant") => {
+            // 토큰 집계: 같은 requestId 는 한 번만(usage 가 줄마다 복제되므로).
+            // requestId 가 없는 기록은 그대로 합산한다.
+            let req = v["requestId"].as_str().unwrap_or("");
+            if req.is_empty() || st.turn_reqs.insert(req.to_string()) {
+                st.turn_tokens += usage_tokens(&v["message"]["usage"]);
+            }
             let (text, has_tool, tool_desc, has_sensitive) =
                 assistant_content(&v["message"]["content"]);
             if !text.is_empty() {
@@ -476,6 +499,7 @@ fn process_codex_line(app: &AppHandle, st: &mut FState, v: &Value) {
                 detail: short(msg, 55),
                 hwnd: 0,
                 elapsed_secs: elapsed_secs(&st.codex_turn_start_ts, ts),
+                tokens: 0, // Codex 기록엔 usage 가 없다
             },
         );
     }
@@ -864,6 +888,52 @@ mod tests {
                  "message":{"stop_reason":"end_turn","content":[{"type":"text","text":"끝"}]}}"#),
         );
         assert_eq!(elapsed_secs(&st.turn_start_ts, &st.cand_ts), 150);
+    }
+
+    /// 한 응답이 thinking/text/tool_use 여러 줄로 쪼개지면 usage 가 그대로 복제된다.
+    /// requestId 로 dedup 하지 않으면 토큰이 2~3배로 부풀려진다.
+    #[test]
+    fn tokens_are_deduped_by_request_id() {
+        let mut st = FState::default();
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"user","timestamp":"2026-07-16T08:00:00.000Z","message":{"content":"해줘"}}"#),
+        );
+        // 같은 requestId 를 가진 3줄 (usage 복제됨)
+        for kind in [
+            r#"{"type":"thinking","thinking":"음"}"#,
+            r#"{"type":"text","text":"설명"}"#,
+            r#"{"type":"tool_use","name":"Read","input":{}}"#,
+        ] {
+            let line = format!(
+                r#"{{"type":"assistant","uuid":"x","requestId":"req_A","timestamp":"2026-07-16T08:00:01.000Z",
+                   "message":{{"stop_reason":"tool_use","usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":99999,"output_tokens":100}},
+                   "content":[{}]}}}}"#,
+                kind
+            );
+            process_claude_line(&mut st, &v(&line));
+        }
+        assert_eq!(
+            st.turn_tokens, 115,
+            "같은 requestId 3줄은 한 번만 집계(10+5+100). 캐시 읽기는 제외"
+        );
+
+        // 다른 requestId 는 더해진다
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"assistant","uuid":"y","requestId":"req_B","timestamp":"2026-07-16T08:00:02.000Z",
+                 "message":{"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":9},
+                 "content":[{"type":"text","text":"끝"}]}}"#),
+        );
+        assert_eq!(st.turn_tokens, 125);
+
+        // 새 사용자 프롬프트 = 새 턴 → 리셋
+        process_claude_line(
+            &mut st,
+            &v(r#"{"type":"user","timestamp":"2026-07-16T08:01:00.000Z","message":{"content":"또 해줘"}}"#),
+        );
+        assert_eq!(st.turn_tokens, 0);
+        assert!(st.turn_reqs.is_empty());
     }
 
     #[test]
