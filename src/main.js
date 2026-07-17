@@ -248,13 +248,13 @@ function renderList() {
     time.textContent = relTime(n.ts);
     title.append(left, time);
     el.appendChild(title);
-    // 세부내용 대신 걸린 시간·쓴 토큰만 한 줄 덧붙인다(있을 때만)
+    // 상세는 표시하지 않는다(전체 내용은 디스코드에서 확인). 걸린 시간·쓴 토큰만 한 줄.
     const meta = metaLine(n);
     if (meta) {
-      const sub = document.createElement("div");
-      sub.className = "n-detail";
-      sub.textContent = meta;
-      el.appendChild(sub);
+      const m = document.createElement("div");
+      m.className = "n-meta";
+      m.textContent = meta;
+      el.appendChild(m);
     }
     el.addEventListener("click", () => {
       if (n.hwnd) invoke("focus_window", { hwnd: n.hwnd });
@@ -271,7 +271,6 @@ function addNotif(d) {
     source,
     kind: d.kind || "completed",
     title,
-    detail: (d.detail || "").trim(),
     hwnd: d.hwnd || 0,
     ts: Date.now(),
     read: view === "list", // 리스트를 보고 있으면 바로 읽음 처리
@@ -296,9 +295,9 @@ listen("task-done", (e) => {
     ms = 20000;
     tone = "warn";
   } else {
-    // 완료엔 걸린 시간·쓴 토큰을 함께 표시 (있을 때만)
+    // 상세는 표시하지 않고(디스코드에서 확인) 제목 + 걸린 시간·쓴 토큰만 간단히
     const meta = metaLine(d);
-    text = `${icon} ${title} 작업 완료 ✅${meta ? `\n${meta}` : ""}`;
+    text = `${icon} ${title} 작업 완료 ✅` + (meta ? `\n${meta}` : "");
     ms = 10000;
     tone = "";
   }

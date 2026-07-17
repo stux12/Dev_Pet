@@ -28,7 +28,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 ### 방법 A — 설치 파일로 실행 (권장, 가장 간단)
 
 릴리스: https://github.com/stux12/Dev_Pet/releases/latest
-1. `DevPet_0.2.6_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
+1. `DevPet_0.2.7_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
 2. 시작 메뉴에서 **DevPet** 실행
 
 ### 방법 B — 소스에서 빌드
@@ -52,9 +52,9 @@ npm run tauri build
 | 파일 | 경로 | 용도 |
 |------|------|------|
 | 실행 파일 | `src-tauri/target/release/dev-pet.exe` | 설치 없이 **바로 실행** |
-| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.6_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
+| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.7_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
 
-- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.6_x64_en-US.msi`
+- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.7_x64_en-US.msi`
 - 파일 탐색기 주소창에 `src-tauri\target\release\bundle\msi` 를 붙여넣으면 해당 폴더가 열립니다.
 - ⚠️ `target/` 폴더는 `.gitignore`로 **저장소에는 포함되지 않습니다.** 각자 `npm run tauri build`로 생성하세요.
 - 다른 PC에 배포하려면 **`.msi` 파일 하나만** 넘겨주면 됩니다.
@@ -84,8 +84,8 @@ npm run tauri dev
 
 ### 3. 작업 완료 / 승인 알림 — **설정 불필요!**
 펫 앱을 켜두기만 하면, Claude Code(CLI·데스크탑 앱)와 Codex의 작업을 자동 감지합니다.
-- 작업이 끝나면 → 🟠/🟢 `{작업 제목} 작업 완료 ✅` + 요약
-- 승인/허용이 필요하면 → `{작업 제목} 승인 필요 🔔` + 대기 중인 명령
+- 작업이 끝나면 → 🟠/🟢 `{작업 제목} 작업 완료 ✅` (걸린 시간·토큰 함께)
+- 승인/허용이 필요하면 → `{작업 제목} 승인 필요 🔔`
 - 말풍선은 항상 **최신 1건**만, 지난 알림은 🔔 목록에서 확인
 
 ### 4. 알림 목록 · 소리
@@ -116,7 +116,7 @@ npm run tauri dev
 - **완료(Claude)**: `%USERPROFILE%\.claude\projects\*\*.jsonl` 감시 — 응답의 `stop_reason`이 `end_turn`이면 완료. 제목은 대화창 이름. 걸린 시간과 쓴 토큰(`usage`, `requestId`로 dedup)도 함께 집계.
 - **완료(Codex)**: `%USERPROFILE%\.codex\sessions\**\*.jsonl` — `task_complete` 이벤트 감지.
 - **승인 대기 — CLI**: CLI의 **Notification 훅**으로 감지 — `permission_prompt`(권한 확인 대기) / `agent_needs_input`(질문 등 입력 대기). 앱이 시작 시 훅 스크립트를 `~/.claude`에 설치하고 `settings.json`에 자동 등록합니다(별도 설정 불필요).
-- **승인 대기 — 데스크탑 앱**: **파일 감시로 추정**합니다. 마지막이 권한 필요 도구(Bash·PowerShell·Write·Edit 등) 호출이고 결과 없이 **약 15초** 조용하면 알림. 읽기 전용 도구(Read·Grep 등)는 제외합니다.
+- **승인 대기 — 데스크탑 앱**: **파일 감시로 추정**합니다. 마지막이 권한 필요 도구(Bash·PowerShell·Write·Edit 등) 호출이고 결과 없이 **약 15초** 조용하면 알림. 읽기 전용 도구(Read·Grep 등)와 **자동승인(`permissions.allow` 매칭) 명령**(빌드 등)은 제외합니다 — 자동승인은 프롬프트가 뜨지 않으니까요.
 - 앱 시작 이후의 완료만 알림(과거 것 무시). 감지까지 약 1~2초.
 
 > **왜 CLI와 데스크탑이 다른가?** 두 가지가 정반대이기 때문입니다.
@@ -127,7 +127,7 @@ npm run tauri dev
 
 **훅 설치/해제**: 앱을 켜면 훅이 자동 등록되고, **완전 종료**하면 자동 해제됩니다(스크립트 삭제 + `settings.json` 정리). 단, 작업 관리자로 **강제 종료**하거나 앱을 **완전 종료 없이 삭제**한 경우엔 훅이 남을 수 있습니다 — 그때는 `~/.claude/devpet-approval-hook.ps1` 파일과 `settings.json`의 `hooks.Notification` 안 DevPet 항목을 지우면 됩니다. (남아 있어도 DevPet이 꺼져 있으면 전송만 조용히 실패할 뿐 해롭진 않습니다)
 
-**한계**: 데스크탑 앱의 승인 감지는 추정 방식이라, **자동 실행되는 긴 명령(빌드 등 15초 이상)을 승인 대기로 오탐**할 수 있습니다(CLI는 훅으로 정확히 잡으므로 해당 없음). Codex 승인은 지원하지 않습니다 — `sandbox=elevated`면 자동 승인이라 승인 요청 자체가 없습니다.
+**한계**: 데스크탑 앱의 승인 감지는 추정 방식이라, **`permissions.allow`에 없으면서 오래 걸리는 명령**을 승인 대기로 오탐할 수 있습니다(흔한 자동승인 명령은 제외되고, CLI는 훅으로 정확히 잡으므로 해당 없음). Codex 승인은 지원하지 않습니다 — `sandbox=elevated`면 자동 승인이라 승인 요청 자체가 없습니다.
 
 수동 테스트용 로컬 엔드포인트도 있습니다: `POST http://127.0.0.1:37651/notify` — body `{source,kind,message,detail}`.
 
@@ -171,6 +171,10 @@ MIT
 ## 🗒️ 업데이트 이력
 
 > 커밋이 있을 때마다 무엇을 바꿨는지 여기에 간략히 기록합니다. (최신순)
+
+### 2026-07-16 · v0.2.7
+- **알림을 간결하게 (상세 내용 제거)** — 완료/승인 알림에서 응답 요약 같은 상세 내용을 뺐습니다. 말풍선·알림 리스트·디스코드 모두 **제목 + 상태 + (완료 시) 걸린 시간·토큰**만 보여줍니다.
+- **데스크탑 승인 오탐 감소** — 데스크탑 세션의 승인 추정에서, `permissions.allow`에 매칭되는 **자동승인 명령**(예: `Bash(npm run *)`)을 제외합니다. 자동승인 명령은 승인 프롬프트가 뜨지 않으므로, 빌드·설치 등 오래 걸리는 명령이 "승인 대기"로 오탐되던 걸 막습니다. (글로벌·프로젝트의 `settings.json`/`settings.local.json`을 읽으며, glob 매칭은 근사라 완벽하진 않습니다)
 
 ### 2026-07-16 · v0.2.6
 - **완료 알림에 쓴 토큰 표시** — `⏱ 2분 30초 · 🪙 12k 토큰`처럼 **이번 작업에 쓴 토큰**을 함께 보여줍니다(말풍선 · 알림 리스트 · 디스코드). 기록의 `usage`에서 집계합니다.

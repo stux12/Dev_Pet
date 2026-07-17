@@ -505,9 +505,10 @@ fn discord_body(done: &TaskDone) -> String {
             }
         }
     );
+    // 상세 내용은 넣지 않는다(제목 + 상태 + 시간/토큰만 간결하게).
     serde_json::json!({
         "username": "DevPet 🐾",
-        "embeds": [{ "title": title, "description": done.detail, "color": color }]
+        "embeds": [{ "title": title, "color": color }]
     })
     .to_string()
 }

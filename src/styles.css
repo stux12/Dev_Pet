@@ -438,6 +438,12 @@ body.physics .pet:active { cursor: grabbing; }
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
+.notif-item .n-meta {
+  font-size: 10px;
+  color: var(--muted);
+  opacity: 0.75;
+  margin-top: 2px;
+}
 .notif-empty {
   text-align: center;
   color: var(--muted);

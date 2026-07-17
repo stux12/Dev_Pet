@@ -51,6 +51,9 @@ struct FState {
     turn_start_ts: String,
     /// entrypoint == "claude-desktop" (데스크탑 앱 세션). 승인 추정은 여기서만 한다.
     is_desktop: bool,
+    /// 세션 cwd 기준으로 로드한 permissions.allow 규칙(자동승인 명령 제외용). 세션당 1회 로드.
+    allow_rules: Vec<String>,
+    allow_loaded: bool,
     /// 이번 턴에 쓴 토큰 합. 사용자 프롬프트에서 리셋.
     turn_tokens: u64,
     /// 이번 턴에 이미 집계한 requestId. 한 응답이 thinking/text/tool_use 여러 줄로
@@ -234,6 +237,8 @@ fn process(app: &AppHandle, path: &Path, is_codex: bool, st: &mut FState) {
                     source: "claude".into(),
                     kind: "completed".into(),
                     message: short(&title, 30),
+                    // detail 은 이제 알림에 표시하지 않으므로 짧게만 넘긴다(로컬 엔드포인트
+                    // 수동 테스트 등 호환용).
                     detail: short(&st.last_assistant, 55),
                     hwnd: 0,
                     elapsed_secs: elapsed_secs(&st.turn_start_ts, &st.cand_ts),
@@ -382,6 +387,13 @@ fn process_claude_line(st: &mut FState, v: &Value) {
     if let Some(ep) = v["entrypoint"].as_str() {
         st.is_desktop = ep == "claude-desktop";
     }
+    // 세션 cwd 를 처음 알게 되면 그 프로젝트의 allow 규칙을 로드(자동승인 명령 제외용).
+    if !st.allow_loaded {
+        if let Some(cwd) = v["cwd"].as_str() {
+            st.allow_rules = load_allow_rules(cwd);
+            st.allow_loaded = true;
+        }
+    }
     match v["type"].as_str() {
         Some("custom-title") => {
             if let Some(t) = v["customTitle"].as_str() {
@@ -439,6 +451,15 @@ fn process_claude_line(st: &mut FState, v: &Value) {
             // 승인 대기 후보: 데스크탑 세션에서 마지막이 '권한 필요' 도구호출일 때만.
             // (CLI 는 훅이 정확히 잡으므로 추정하지 않는다 — 긴 자동 실행 오탐 방지)
             st.pending_tool = st.is_desktop && has_tool && has_sensitive;
+            if st.pending_tool {
+                // 자동승인(allow 매칭)되는 도구 호출은 승인 프롬프트가 뜨지 않으므로 제외.
+                // 대표적으로 `Bash(npm run *)` 같은 규칙에 걸리는 빌드·설치 명령의 오탐을 막는다.
+                if let Some((tname, targ)) = first_tool_arg(&v["message"]["content"]) {
+                    if is_auto_approved(&st.allow_rules, &tname, &targ) {
+                        st.pending_tool = false;
+                    }
+                }
+            }
             if st.pending_tool {
                 st.pending_marker = marker;
                 st.pending_ts = ts;
@@ -505,8 +526,8 @@ fn process_codex_line(app: &AppHandle, st: &mut FState, v: &Value) {
     }
 }
 
-/// 승인(권한 확인)이 흔히 필요한 도구인지. 읽기 전용/자동 실행 도구는 제외해
-/// 승인 대기 오탐을 줄인다. 알 수 없는 도구는 대상에서 제외(노이즈 최소화).
+/// 승인(권한 확인)이 흔히 필요한 도구인지. 읽기 전용 도구는 제외해 오탐을 줄인다.
+/// (Bash 등 오래 걸리는 도구의 오탐은 permissions.allow 매칭으로 별도 제거 — is_auto_approved)
 fn is_approval_tool(name: &str) -> bool {
     const APPROVAL_TOOLS: &[&str] = &[
         "Bash",
@@ -518,6 +539,98 @@ fn is_approval_tool(name: &str) -> bool {
         "WebFetch",
     ];
     APPROVAL_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name))
+}
+
+/// permissions.allow 규칙 하나가 (도구, 명령/인자)에 매칭되는지 (근사).
+/// 규칙 형식: `Tool(pattern)` 또는 `Tool`. pattern 의 `*` 는 임의 문자열(앵커됨).
+/// 예: `Bash(npm run *)` → 도구=Bash 이고 명령이 "npm run " 으로 시작하면 매칭.
+fn rule_matches(rule: &str, tool: &str, arg: &str) -> bool {
+    let (rtool, rpat) = match rule.find('(') {
+        Some(open) if rule.ends_with(')') => (&rule[..open], Some(&rule[open + 1..rule.len() - 1])),
+        _ => (rule, None),
+    };
+    if !rtool.eq_ignore_ascii_case(tool) {
+        return false;
+    }
+    match rpat {
+        None => true, // `Bash` → 모든 Bash 허용
+        Some(pat) => glob_match(pat, arg),
+    }
+}
+
+/// `*` 와일드카드 glob 매칭(앵커). `*` 없으면 정확 일치.
+fn glob_match(pat: &str, s: &str) -> bool {
+    let parts: Vec<&str> = pat.split('*').collect();
+    if parts.len() == 1 {
+        return pat == s;
+    }
+    // 첫 조각 = prefix
+    if !s.starts_with(parts[0]) {
+        return false;
+    }
+    let mut pos = parts[0].len();
+    for (i, part) in parts.iter().enumerate().skip(1) {
+        if i == parts.len() - 1 {
+            // 마지막 조각 = suffix (빈 문자열이면 항상 참)
+            return s[pos..].ends_with(part);
+        }
+        match s[pos..].find(part) {
+            Some(idx) => pos += idx + part.len(),
+            None => return false,
+        }
+    }
+    true
+}
+
+/// 이 도구 호출이 자동승인(allow 규칙 매칭)되는지 → 그렇다면 승인 프롬프트가 뜨지 않으므로
+/// 승인 대기 추정에서 제외한다.
+fn is_auto_approved(rules: &[String], tool: &str, arg: &str) -> bool {
+    rules.iter().any(|r| rule_matches(r, tool, arg))
+}
+
+/// content 배열에서 첫 tool_use 의 (도구명, 주요 인자) 추출 (allow 매칭용).
+fn first_tool_arg(content: &Value) -> Option<(String, String)> {
+    for p in content.as_array()? {
+        if p["type"].as_str() == Some("tool_use") {
+            let name = p["name"].as_str().unwrap_or("").to_string();
+            let input = &p["input"];
+            let arg = input["command"]
+                .as_str()
+                .or_else(|| input["file_path"].as_str())
+                .or_else(|| input["path"].as_str())
+                .or_else(|| input["url"].as_str())
+                .unwrap_or("")
+                .to_string();
+            return Some((name, arg));
+        }
+    }
+    None
+}
+
+/// 세션 cwd 기준으로 permissions.allow 규칙을 모은다(글로벌 + 프로젝트, settings + local).
+fn load_allow_rules(cwd: &str) -> Vec<String> {
+    let home = home();
+    let paths = [
+        home.join(".claude").join("settings.json"),
+        home.join(".claude").join("settings.local.json"),
+        Path::new(cwd).join(".claude").join("settings.json"),
+        Path::new(cwd).join(".claude").join("settings.local.json"),
+    ];
+    let mut rules = Vec::new();
+    for p in paths {
+        if let Ok(s) = fs::read_to_string(&p) {
+            if let Ok(v) = serde_json::from_str::<Value>(s.trim_start_matches('\u{feff}')) {
+                if let Some(arr) = v["permissions"]["allow"].as_array() {
+                    for r in arr {
+                        if let Some(rs) = r.as_str() {
+                            rules.push(rs.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    rules
 }
 
 /// tool_use → "도구명: 주요인자" (승인 알림 상세용)
@@ -828,6 +941,50 @@ mod tests {
         assert!(st2.pending_tool, "데스크탑 세션은 승인 추정 대상");
         assert_eq!(st2.pending_marker, "u2");
         assert_eq!(st2.pending_detail, "Bash: rm x");
+    }
+
+    #[test]
+    fn glob_match_basics() {
+        assert!(glob_match("npm run *", "npm run tauri build"));
+        assert!(!glob_match("npm run *", "cargo build"));
+        assert!(glob_match("git push *", "git push origin main"));
+        assert!(glob_match("git commit *", "git commit -m 'hello'"));
+        assert!(glob_match("taskkill", "taskkill")); // * 없음 = 정확 일치
+        assert!(!glob_match("taskkill", "taskkill foo"));
+        assert!(glob_match("*.txt", "a/b/c.txt")); // suffix
+        assert!(glob_match("*", "무엇이든"));
+    }
+
+    #[test]
+    fn rule_matches_tool_and_pattern() {
+        assert!(rule_matches("Bash(npm run *)", "Bash", "npm run x"));
+        assert!(!rule_matches("Bash(npm run *)", "Write", "npm run x")); // 도구 불일치
+        assert!(!rule_matches("Bash(npm run *)", "Bash", "cargo build")); // 패턴 불일치
+        assert!(rule_matches("Bash", "Bash", "무엇이든")); // 패턴 없음 = 전체 허용
+    }
+
+    /// 자동승인(allow 매칭)되는 명령은 승인 프롬프트가 안 뜨므로 대기로 보지 않는다.
+    #[test]
+    fn auto_approved_command_is_not_pending() {
+        let tool = |cmd: &str| {
+            format!(
+                r#"{{"type":"assistant","uuid":"u","timestamp":"2026-07-16T08:00:00.000Z",
+                   "entrypoint":"claude-desktop",
+                   "message":{{"stop_reason":"tool_use","content":[{{"type":"tool_use","name":"Bash","input":{{"command":"{}"}}}}]}}}}"#,
+                cmd
+            )
+        };
+        let mut st = FState::default();
+        st.allow_rules = vec!["Bash(npm run *)".into()];
+        st.allow_loaded = true;
+        process_claude_line(&mut st, &v(&tool("npm run tauri build")));
+        assert!(!st.pending_tool, "allow 매칭된 빌드 명령은 승인 후보가 아니다");
+
+        let mut st2 = FState::default();
+        st2.allow_rules = vec!["Bash(npm run *)".into()];
+        st2.allow_loaded = true;
+        process_claude_line(&mut st2, &v(&tool("rm -rf /important")));
+        assert!(st2.pending_tool, "allow 안 된 명령은 승인 후보로 남는다");
     }
 
     /// 읽기 전용 도구는 데스크탑에서도 승인 대기로 보지 않는다.
