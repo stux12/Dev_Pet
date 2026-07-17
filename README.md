@@ -28,7 +28,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 ### 방법 A — 설치 파일로 실행 (권장, 가장 간단)
 
 릴리스: https://github.com/stux12/Dev_Pet/releases/latest
-1. `DevPet_0.2.11_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
+1. `DevPet_0.2.12_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
 2. 시작 메뉴에서 **DevPet** 실행
 
 ### 방법 B — 소스에서 빌드
@@ -52,9 +52,9 @@ npm run tauri build
 | 파일 | 경로 | 용도 |
 |------|------|------|
 | 실행 파일 | `src-tauri/target/release/dev-pet.exe` | 설치 없이 **바로 실행** |
-| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.11_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
+| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.12_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
 
-- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.11_x64_en-US.msi`
+- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.12_x64_en-US.msi`
 - 파일 탐색기 주소창에 `src-tauri\target\release\bundle\msi` 를 붙여넣으면 해당 폴더가 열립니다.
 - ⚠️ `target/` 폴더는 `.gitignore`로 **저장소에는 포함되지 않습니다.** 각자 `npm run tauri build`로 생성하세요.
 - 다른 PC에 배포하려면 **`.msi` 파일 하나만** 넘겨주면 됩니다.
@@ -116,7 +116,7 @@ npm run tauri dev
 - **완료(Claude)**: `%USERPROFILE%\.claude\projects\*\*.jsonl` 감시 — 응답의 `stop_reason`이 `end_turn`이면 완료. 제목은 대화창 이름. 걸린 시간과 쓴 토큰(`usage`, `requestId`로 dedup)도 함께 집계.
 - **완료(Codex)**: `%USERPROFILE%\.codex\sessions\**\*.jsonl` — `task_complete` 이벤트 감지.
 - **승인 대기 — CLI**: CLI의 **Notification 훅**으로 감지 — `permission_prompt`(권한 확인 대기) / `agent_needs_input`(질문 등 입력 대기). 앱이 시작 시 훅 스크립트를 `~/.claude`에 설치하고 `settings.json`에 자동 등록합니다(별도 설정 불필요).
-- **승인 대기 — 데스크탑 앱**: **파일 감시로 추정**합니다. 마지막이 권한 필요 도구(Bash·PowerShell·Write·Edit 등) 호출이고 결과 없이 **약 15초** 조용하면 알림. 읽기 전용 도구(Read·Grep 등)와 **자동승인(`permissions.allow` 매칭) 명령**(빌드 등)은 제외합니다 — 자동승인은 프롬프트가 뜨지 않으니까요.
+- **승인 대기 — 데스크탑 앱**: **파일 감시로 추정**합니다. 마지막이 도구 호출이고 결과 없이 **약 15초** 조용하면 알림(도구 종류 무관 — 읽기 포함). "승인이 필요한지"는 **자동승인(`permissions.allow` 매칭) 여부**로 판단해, allow에 걸리는 명령(빌드 등)은 제외합니다 — 자동승인은 프롬프트가 뜨지 않으니까요. 즉시 끝나는 도구는 15초 전에 결과가 와서 자연히 걸러집니다.
 - 앱 시작 이후의 완료만 알림(과거 것 무시). 감지까지 약 1~2초.
 
 > **왜 CLI와 데스크탑이 다른가?** 두 가지가 정반대이기 때문입니다.
@@ -171,6 +171,9 @@ MIT
 ## 🗒️ 업데이트 이력
 
 > 커밋이 있을 때마다 무엇을 바꿨는지 여기에 간략히 기록합니다. (최신순)
+
+### 2026-07-18 · v0.2.12
+- **모든 승인 대기 작업 알림** — 이전엔 파일 쓰기·명령 실행 등 일부 도구만 승인 알림을 보냈는데, 이제 **읽기(Read)를 포함해 승인 프롬프트가 뜨는 모든 작업**을 알립니다. "승인이 필요한지"는 도구 종류가 아니라 `permissions.allow` 매칭으로 판단합니다(자동승인 명령은 계속 제외). 즉시 끝나는 도구는 15초 전에 결과가 와서 오탐이 없습니다. (데스크탑 세션 대상)
 
 ### 2026-07-18 · v0.2.11
 - **앱 내 자동 업데이트** — 새 버전이 나오면 펫이 `🎉 새 버전 나왔어요! 클릭하면 지금 업데이트`라고 알려주고, **말풍선을 클릭하면 다운로드·설치·재시작까지 자동**입니다. 더 이상 MSI를 직접 받아 설치할 필요가 없습니다. (Tauri updater, 서명으로 진위 검증)

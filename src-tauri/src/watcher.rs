@@ -425,8 +425,7 @@ fn process_claude_line(st: &mut FState, v: &Value) {
             if req.is_empty() || st.turn_reqs.insert(req.to_string()) {
                 st.turn_tokens += usage_tokens(&v["message"]["usage"]);
             }
-            let (text, has_tool, tool_desc, has_sensitive) =
-                assistant_content(&v["message"]["content"]);
+            let (text, has_tool, tool_desc) = assistant_content(&v["message"]["content"]);
             if !text.is_empty() {
                 st.last_assistant = text.clone();
             }
@@ -449,9 +448,11 @@ fn process_claude_line(st: &mut FState, v: &Value) {
             };
             st.cand_ts = ts.clone();
             st.cand_marker = marker.clone();
-            // 승인 대기 후보: 데스크탑 세션에서 마지막이 '권한 필요' 도구호출일 때만.
-            // (CLI 는 훅이 정확히 잡으므로 추정하지 않는다 — 긴 자동 실행 오탐 방지)
-            st.pending_tool = st.is_desktop && has_tool && has_sensitive;
+            // 승인 대기 후보: 데스크탑 세션에서 도구 호출이 있으면(도구 종류 무관).
+            // 승인 프롬프트가 뜨는지는 도구 종류가 아니라 allow 매칭 여부로 판단한다 —
+            // 읽기(Read)도 프로젝트 밖 파일 등 allow 안 되면 승인이 뜰 수 있어 포함한다.
+            // (즉시 끝나는 도구는 15초 전에 결과가 와서 자연히 제외됨. CLI 는 훅이 담당)
+            st.pending_tool = st.is_desktop && has_tool;
             if st.pending_tool {
                 // 자동승인(allow 매칭)되는 도구 호출은 승인 프롬프트가 뜨지 않으므로 제외.
                 // 대표적으로 `Bash(npm run *)` 같은 규칙에 걸리는 빌드·설치 명령의 오탐을 막는다.
@@ -525,21 +526,6 @@ fn process_codex_line(app: &AppHandle, st: &mut FState, v: &Value) {
             },
         );
     }
-}
-
-/// 승인(권한 확인)이 흔히 필요한 도구인지. 읽기 전용 도구는 제외해 오탐을 줄인다.
-/// (Bash 등 오래 걸리는 도구의 오탐은 permissions.allow 매칭으로 별도 제거 — is_auto_approved)
-fn is_approval_tool(name: &str) -> bool {
-    const APPROVAL_TOOLS: &[&str] = &[
-        "Bash",
-        "PowerShell",
-        "Write",
-        "Edit",
-        "MultiEdit",
-        "NotebookEdit",
-        "WebFetch",
-    ];
-    APPROVAL_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name))
 }
 
 /// permissions.allow 규칙 하나가 (도구, 명령/인자)에 매칭되는지 (근사).
@@ -654,14 +640,13 @@ fn tool_brief(p: &Value) -> String {
     }
 }
 
-/// content → (텍스트, 도구호출 있음, 첫 도구 요약, 권한필요 도구 포함)
-fn assistant_content(content: &Value) -> (String, bool, String, bool) {
+/// content → (텍스트, 도구호출 있음, 첫 도구 요약)
+fn assistant_content(content: &Value) -> (String, bool, String) {
     if let Some(s) = content.as_str() {
-        return (s.to_string(), false, String::new(), false);
+        return (s.to_string(), false, String::new());
     }
     let mut text = String::new();
     let mut has_tool = false;
-    let mut has_sensitive = false;
     let mut tool_desc = String::new();
     if let Some(arr) = content.as_array() {
         for p in arr {
@@ -676,9 +661,6 @@ fn assistant_content(content: &Value) -> (String, bool, String, bool) {
                 }
                 Some("tool_use") => {
                     has_tool = true;
-                    if is_approval_tool(p["name"].as_str().unwrap_or("")) {
-                        has_sensitive = true;
-                    }
                     if tool_desc.is_empty() {
                         tool_desc = tool_brief(p);
                     }
@@ -687,7 +669,7 @@ fn assistant_content(content: &Value) -> (String, bool, String, bool) {
             }
         }
     }
-    (text, has_tool, tool_desc, has_sensitive)
+    (text, has_tool, tool_desc)
 }
 
 fn user_text(content: &Value) -> String {
@@ -903,27 +885,23 @@ mod tests {
 
     #[test]
     fn assistant_content_extracts_text_and_tool_flag() {
-        // Read 는 읽기 전용이라 권한 필요 도구가 아니다
-        let (text, has_tool, _desc, sensitive) = assistant_content(&v(
+        let (text, has_tool, _desc) = assistant_content(&v(
             r#"[{"type":"text","text":"a"},{"type":"tool_use","name":"Read","input":{}}]"#,
         ));
         assert_eq!(text, "a");
         assert!(has_tool);
-        assert!(!sensitive);
 
-        let (text2, has_tool2, _, _) = assistant_content(&v(r#""그냥 문자열""#));
+        let (text2, has_tool2, _) = assistant_content(&v(r#""그냥 문자열""#));
         assert_eq!(text2, "그냥 문자열");
         assert!(!has_tool2);
 
-        // Bash/PowerShell 은 권한 필요
-        let (_, _, desc, sensitive2) = assistant_content(&v(
+        let (_, _, desc) = assistant_content(&v(
             r#"[{"type":"tool_use","name":"PowerShell","input":{"command":"ls"}}]"#,
         ));
-        assert!(sensitive2, "PowerShell 은 승인 대상(윈도우 CLI 셸 도구)");
         assert_eq!(desc, "PowerShell: ls");
 
         // description(승인 프롬프트 상단 문구)이 있으면 그걸 우선한다
-        let (_, _, desc2, _) = assistant_content(&v(
+        let (_, _, desc2) = assistant_content(&v(
             r#"[{"type":"tool_use","name":"Bash","input":{"command":"cd x && ls","description":"릴리스 준비"}}]"#,
         ));
         assert_eq!(desc2, "Bash: 릴리스 준비");
@@ -996,9 +974,10 @@ mod tests {
         assert!(st2.pending_tool, "allow 안 된 명령은 승인 후보로 남는다");
     }
 
-    /// 읽기 전용 도구는 데스크탑에서도 승인 대기로 보지 않는다.
+    /// 읽기 도구도 승인 대기 후보다(allow 안 된 Read 는 프로젝트 밖 파일 등 승인이 뜰 수 있음).
+    /// 즉시 끝나는 도구는 15초 전에 결과가 와서 실제로는 알림이 안 뜨지만, 후보 판정은 된다.
     #[test]
-    fn readonly_tool_is_not_pending_even_on_desktop() {
+    fn readonly_tool_is_also_pending_on_desktop() {
         let mut st = FState::default();
         process_claude_line(
             &mut st,
@@ -1006,7 +985,8 @@ mod tests {
                  "entrypoint":"claude-desktop",
                  "message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Read","input":{"file_path":"a.txt"}}]}}"#),
         );
-        assert!(!st.pending_tool);
+        assert!(st.pending_tool, "이제 읽기 도구도 승인 후보(allow 미매칭 시)");
+        assert_eq!(st.pending_detail, "Read: a.txt");
     }
 
     /// tool_result 가 도착하면 승인 대기 상태는 해제된다(승인되어 실행됨).
