@@ -461,12 +461,43 @@ pub(crate) fn dispatch_notification(app: &tauri::AppHandle, done: TaskDone) {
     }
 }
 
-/// 디스코드 웹훅 URL 설정 (프론트에서 저장값 동기화)
+/// 디스코드 웹훅 URL을 저장하는 파일(홈). webview localStorage 는 MSI 재설치 시
+/// 초기화될 수 있어, 재시작·재설치에도 유지되도록 홈의 파일에 보관한다.
+fn webhook_file() -> std::path::PathBuf {
+    let home = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".into());
+    std::path::Path::new(&home).join(".devpet-discord")
+}
+
+/// 시작 시 파일에서 웹훅 URL을 읽어 메모리에 복원.
+fn load_discord_webhook() {
+    if let Ok(u) = std::fs::read_to_string(webhook_file()) {
+        let u = u.trim().to_string();
+        if !u.is_empty() {
+            if let Ok(mut w) = DISCORD_WEBHOOK.lock() {
+                *w = u;
+            }
+        }
+    }
+}
+
+/// 디스코드 웹훅 URL 설정 (메모리 + 파일에 영구 저장). 빈 값이면 파일 삭제.
 #[tauri::command]
 fn set_discord_webhook(url: String) {
+    let u = url.trim().to_string();
     if let Ok(mut w) = DISCORD_WEBHOOK.lock() {
-        *w = url.trim().to_string();
+        *w = u.clone();
     }
+    if u.is_empty() {
+        let _ = std::fs::remove_file(webhook_file());
+    } else {
+        let _ = std::fs::write(webhook_file(), &u);
+    }
+}
+
+/// 저장된 디스코드 웹훅 URL 조회 (프론트 입력창 복원용).
+#[tauri::command]
+fn get_discord_webhook() -> String {
+    DISCORD_WEBHOOK.lock().map(|w| w.clone()).unwrap_or_default()
 }
 
 /// 알림 임베드 본문 생성
@@ -696,6 +727,7 @@ fn spawn_notify_server(app: tauri::AppHandle) {
 pub fn run() {
     register_aumid(); // 토스트 알림 표시를 위한 AUMID 등록/지정 (창 생성 전에)
     register_claude_hook(); // CLI 승인 대기 알림용 Notification 훅 설치/등록
+    load_discord_webhook(); // 저장된 디스코드 웹훅 URL 복원(재시작·재설치에도 유지)
     tauri::Builder::default()
         // 단일 인스턴스: 앱은 항상 1개만. 이미 실행 중이면 두 번째 실행은 기존 창만 보여주고 종료.
         // (가장 먼저 등록되어야 함)
@@ -720,6 +752,7 @@ pub fn run() {
             quit_app,
             focus_window,
             set_discord_webhook,
+            get_discord_webhook,
             test_discord,
             get_autostart,
             set_autostart

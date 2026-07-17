@@ -1,6 +1,6 @@
 [package]
 name = "dev-pet"
-version = "0.2.9"
+version = "0.2.10"
 description = "귀여운 개발자 시스템 모니터링 펫"
 edition = "2021"
 default-run = "dev-pet"

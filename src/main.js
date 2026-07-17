@@ -336,10 +336,21 @@ function setDsStatus(msg, cls) {
   el.textContent = msg;
   el.className = "ds-status" + (cls ? " " + cls : "");
 }
-// 시작 시 저장된 웹훅 복원 → Rust에 동기화
-const savedHook = localStorage.getItem(WEBHOOK_KEY) || "";
-$("discord-url").value = savedHook;
-if (savedHook) invoke("set_discord_webhook", { url: savedHook });
+// 시작 시 저장된 웹훅 복원. 이제 Rust가 홈의 파일에 영구 저장하므로 그걸 우선 사용
+// (webview localStorage 는 MSI 재설치 시 초기화됨). 구버전 localStorage 값은 1회 이전.
+invoke("get_discord_webhook")
+  .then((url) => {
+    let u = url || "";
+    if (!u) {
+      const old = localStorage.getItem(WEBHOOK_KEY) || "";
+      if (old) {
+        u = old;
+        invoke("set_discord_webhook", { url: u }); // 파일로 이전
+      }
+    }
+    $("discord-url").value = u;
+  })
+  .catch(() => {});
 
 $("discord-btn").addEventListener("click", async (ev) => {
   ev.stopPropagation();
@@ -351,14 +362,12 @@ $("discord-btn").addEventListener("click", async (ev) => {
 $("discord-save").addEventListener("click", (ev) => {
   ev.stopPropagation();
   const url = $("discord-url").value.trim();
-  localStorage.setItem(WEBHOOK_KEY, url);
-  invoke("set_discord_webhook", { url });
-  setDsStatus(url ? "저장됐어요 ✓" : "URL을 비웠어요", url ? "ok" : "");
+  invoke("set_discord_webhook", { url }); // Rust가 홈 파일에 영구 저장
+  setDsStatus(url ? "저장됐어요 ✓ (계속 유지돼요)" : "URL을 비웠어요", url ? "ok" : "");
 });
 $("discord-test").addEventListener("click", async (ev) => {
   ev.stopPropagation();
   const url = $("discord-url").value.trim();
-  localStorage.setItem(WEBHOOK_KEY, url);
   await invoke("set_discord_webhook", { url });
   setDsStatus("전송 중…", "");
   try {
