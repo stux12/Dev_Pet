@@ -2,8 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, currentMonitor, availableMonitors } from "@tauri-apps/api/window";
 import { LogicalSize, PhysicalPosition } from "@tauri-apps/api/dpi";
-import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 
 const $ = (id) => document.getElementById(id);
 const win = getCurrentWindow();
@@ -79,41 +77,46 @@ function hideBubble() {
   $("bubble").classList.add("hidden");
   if (bubbleTimer) clearTimeout(bubbleTimer);
 }
-$("bubble").addEventListener("click", async () => {
-  // 업데이트 알림 말풍선이면 클릭 = 지금 업데이트
-  if (pendingUpdate) {
-    const u = pendingUpdate;
-    pendingUpdate = null;
-    showBubble("업데이트 받는 중… ⬇️", 0);
-    try {
-      await u.downloadAndInstall();
-      showBubble("설치 완료! 재시작할게요 🔄", 0);
-      await relaunch();
-    } catch (e) {
-      showBubble("업데이트 실패 😥 나중에 다시 시도해요", 4000, "warn");
-    }
-    return;
-  }
+$("bubble").addEventListener("click", () => {
   if (bubbleHwnd) invoke("focus_window", { hwnd: bubbleHwnd });
   hideBubble();
 });
 
 /* ─────────────── 앱 내 자동 업데이트 ─────────────── */
-// 시작 후 잠시 뒤 GitHub Releases 에서 새 버전 확인. 있으면 말풍선으로 안내(클릭 시 설치).
+// 앱 시작 시 맨 먼저 GitHub Releases 에서 새 버전을 확인한다.
+// 있으면 그 알림 말풍선을 계속 띄워두고(로딩 말풍선이 덮지 않도록 finishScan/beginScan에서
+// pendingUpdate 를 확인), 없으면 정상 로딩(파일 감지)으로 넘어간다.
 let pendingUpdate = null;
 async function checkUpdate() {
   try {
+    const { check } = await import("@tauri-apps/plugin-updater");
     const update = await check();
     if (update && update.available) {
       pendingUpdate = update;
-      showBubble(`🎉 새 버전 v${update.version} 나왔어요!\n클릭하면 지금 업데이트`, 0);
+      $("update-btn").classList.remove("hidden"); // 🔔 옆 ⬆️ 버튼 상시 표시
+      showBubble(`🎉 새 버전 v${update.version} 나왔어요!\n🔔 옆 ⬆️ 버튼으로 업데이트하세요`, 5000);
+      return true;
     }
   } catch (e) {
-    /* 네트워크 실패 등은 조용히 무시 */
+    /* 네트워크 실패 등은 조용히 무시하고 정상 시작 */
   }
+  return false;
 }
-// 로딩·사용 소개 말풍선과 겹치지 않게 조금 뒤에 확인
-setTimeout(checkUpdate, 7000);
+// 업데이트 버튼 클릭 → 다운로드·설치·재시작
+$("update-btn").addEventListener("click", async (ev) => {
+  ev.stopPropagation();
+  if (!pendingUpdate) return;
+  const u = pendingUpdate;
+  showBubble("업데이트 받는 중… ⬇️", 0);
+  try {
+    await u.downloadAndInstall();
+    showBubble("설치 완료! 재시작할게요 🔄", 0);
+    const { relaunch } = await import("@tauri-apps/plugin-process");
+    await relaunch();
+  } catch (e) {
+    showBubble("업데이트 실패:\n" + (e?.message || String(e)), 8000, "warn");
+  }
+});
 
 /* ─────────────── 최초 감지(로딩) 화면 ─────────────── */
 // 앱을 켤 때마다 시작 시 한 번, 필요한 대화 기록 파일을 감지할 때까지
@@ -146,7 +149,16 @@ function finishScan(info) {
     }, 4200);
   }, wait);
 }
-beginScan();
+// 시작: 업데이트를 먼저 확인. 새 버전이 있으면 5초 알림 말풍선을 보여준 뒤 로딩으로 넘어가고
+// (업데이트는 🔔 옆 ⬆️ 버튼으로 언제든), 없으면 바로 로딩을 시작한다.
+(async () => {
+  const hasUpdate = await checkUpdate();
+  if (hasUpdate) {
+    setTimeout(beginScan, 5000); // 5초 알림 후 로딩
+  } else {
+    beginScan();
+  }
+})();
 listen("scan-ready", (e) => finishScan(e.payload));
 // 백그라운드 토스트 클릭 → 펫이 뜨면서 알림 리스트까지 열기
 listen("open-notif-list", () => { setView("list"); });

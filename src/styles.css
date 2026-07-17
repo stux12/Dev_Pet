@@ -330,6 +330,27 @@ body.physics .pet:active { cursor: grabbing; }
 }
 .badge.hidden { display: none; }
 
+/* ── 업데이트 버튼 (새 버전 있을 때만) ── */
+#update-btn {
+  position: fixed;
+  top: 6px;
+  left: 28px;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px;
+  opacity: 1;
+  animation: updatePulse 1.4s ease-in-out infinite;
+}
+#update-btn.hidden { display: none; }
+#update-btn:hover { transform: scale(1.15); }
+@keyframes updatePulse {
+  0%, 100% { transform: translateY(0); filter: drop-shadow(0 0 0 rgba(62,198,180,0)); }
+  50% { transform: translateY(-2px); filter: drop-shadow(0 0 4px rgba(62,198,180,0.9)); }
+}
+
 /* ── 알림 리스트 ── */
 .notif-list { gap: 0; padding: 8px 8px 10px; }
 .notif-head {

@@ -51,9 +51,11 @@ struct FState {
     turn_start_ts: String,
     /// entrypoint == "claude-desktop" (데스크탑 앱 세션). 승인 추정은 여기서만 한다.
     is_desktop: bool,
-    /// 세션 cwd 기준으로 로드한 permissions.allow 규칙(자동승인 명령 제외용). 세션당 1회 로드.
+    /// 세션 cwd 기준으로 로드한 permissions.allow 규칙(자동승인 명령 제외용).
+    /// settings 파일이 바뀌면(=사용자가 "계속 허용" 하면) 다시 읽어 오탐을 막는다.
     allow_rules: Vec<String>,
-    allow_loaded: bool,
+    allow_cwd: String,
+    allow_mtime: u64,
     /// 이번 턴에 쓴 토큰 합. 사용자 프롬프트에서 리셋.
     turn_tokens: u64,
     /// 이번 턴에 이미 집계한 requestId. 한 응답이 thinking/text/tool_use 여러 줄로
@@ -388,11 +390,14 @@ fn process_claude_line(st: &mut FState, v: &Value) {
     if let Some(ep) = v["entrypoint"].as_str() {
         st.is_desktop = ep == "claude-desktop";
     }
-    // 세션 cwd 를 처음 알게 되면 그 프로젝트의 allow 규칙을 로드(자동승인 명령 제외용).
-    if !st.allow_loaded {
-        if let Some(cwd) = v["cwd"].as_str() {
+    // allow 규칙 로드/갱신: cwd 가 바뀌었거나 settings 파일이 수정됐으면 다시 읽는다.
+    // (세션 중 "계속 허용"으로 규칙이 추가돼도 반영 → 자동승인된 작업 오탐 방지)
+    if let Some(cwd) = v["cwd"].as_str() {
+        let mt = allow_files_mtime(cwd);
+        if cwd != st.allow_cwd || mt != st.allow_mtime {
             st.allow_rules = load_allow_rules(cwd);
-            st.allow_loaded = true;
+            st.allow_cwd = cwd.to_string();
+            st.allow_mtime = mt;
         }
     }
     match v["type"].as_str() {
@@ -594,17 +599,32 @@ fn first_tool_arg(content: &Value) -> Option<(String, String)> {
     None
 }
 
-/// 세션 cwd 기준으로 permissions.allow 규칙을 모은다(글로벌 + 프로젝트, settings + local).
-fn load_allow_rules(cwd: &str) -> Vec<String> {
+/// allow 규칙을 읽는 settings 파일 4곳(글로벌 + 프로젝트, settings + local).
+fn allow_files(cwd: &str) -> [PathBuf; 4] {
     let home = home();
-    let paths = [
+    [
         home.join(".claude").join("settings.json"),
         home.join(".claude").join("settings.local.json"),
         Path::new(cwd).join(".claude").join("settings.json"),
         Path::new(cwd).join(".claude").join("settings.local.json"),
-    ];
+    ]
+}
+
+/// 위 파일들 중 최신 수정시각(초). 변경 감지용. 하나도 없으면 0.
+fn allow_files_mtime(cwd: &str) -> u64 {
+    allow_files(cwd)
+        .iter()
+        .filter_map(|p| fs::metadata(p).ok()?.modified().ok())
+        .filter_map(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .max()
+        .unwrap_or(0)
+}
+
+/// 세션 cwd 기준으로 permissions.allow 규칙을 모은다(글로벌 + 프로젝트, settings + local).
+fn load_allow_rules(cwd: &str) -> Vec<String> {
     let mut rules = Vec::new();
-    for p in paths {
+    for p in allow_files(cwd) {
         if let Ok(s) = fs::read_to_string(&p) {
             if let Ok(v) = serde_json::from_str::<Value>(s.trim_start_matches('\u{feff}')) {
                 if let Some(arr) = v["permissions"]["allow"].as_array() {
@@ -961,15 +981,14 @@ mod tests {
                 cmd
             )
         };
+        // cwd 를 주지 않으면 파일 로드를 건너뛰어 여기서 넣은 allow_rules 가 그대로 쓰인다.
         let mut st = FState::default();
         st.allow_rules = vec!["Bash(npm run *)".into()];
-        st.allow_loaded = true;
         process_claude_line(&mut st, &v(&tool("npm run tauri build")));
         assert!(!st.pending_tool, "allow 매칭된 빌드 명령은 승인 후보가 아니다");
 
         let mut st2 = FState::default();
         st2.allow_rules = vec!["Bash(npm run *)".into()];
-        st2.allow_loaded = true;
         process_claude_line(&mut st2, &v(&tool("rm -rf /important")));
         assert!(st2.pending_tool, "allow 안 된 명령은 승인 후보로 남는다");
     }

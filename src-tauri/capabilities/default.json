@@ -16,6 +16,9 @@
     "core:window:allow-current-monitor",
     "core:window:allow-available-monitors",
     "updater:default",
-    "process:default"
+    "updater:allow-check",
+    "updater:allow-download-and-install",
+    "process:default",
+    "process:allow-restart"
   ]
 }
