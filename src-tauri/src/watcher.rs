@@ -634,16 +634,18 @@ fn load_allow_rules(cwd: &str) -> Vec<String> {
     rules
 }
 
-/// tool_use → "도구명: 주요인자" (승인 알림 상세용)
+/// tool_use → "도구명: 요약" (승인 알림 상세용).
+/// description(승인 프롬프트 상단에 뜨는 사람이 읽기 좋은 요약. 예: "Create v0.2.8 release")을
+/// 우선한다. 없으면 실제 인자(명령/경로/URL)로 폴백.
 fn tool_brief(p: &Value) -> String {
     let name = p["name"].as_str().unwrap_or("도구");
     let input = &p["input"];
-    let arg = input["command"]
+    let arg = input["description"]
         .as_str()
+        .or_else(|| input["command"].as_str())
         .or_else(|| input["file_path"].as_str())
         .or_else(|| input["path"].as_str())
         .or_else(|| input["url"].as_str())
-        .or_else(|| input["description"].as_str())
         .unwrap_or("");
     if arg.is_empty() {
         name.to_string()
@@ -919,6 +921,12 @@ mod tests {
         ));
         assert!(sensitive2, "PowerShell 은 승인 대상(윈도우 CLI 셸 도구)");
         assert_eq!(desc, "PowerShell: ls");
+
+        // description(승인 프롬프트 상단 문구)이 있으면 그걸 우선한다
+        let (_, _, desc2, _) = assistant_content(&v(
+            r#"[{"type":"tool_use","name":"Bash","input":{"command":"cd x && ls","description":"릴리스 준비"}}]"#,
+        ));
+        assert_eq!(desc2, "Bash: 릴리스 준비");
     }
 
     /// 승인 추정은 데스크탑 세션에서만. CLI 는 훅이 정확히 잡으므로 추정하면
