@@ -262,7 +262,8 @@ fn process(app: &AppHandle, path: &Path, is_codex: bool, st: &mut FState) {
                     source: "claude".into(),
                     kind: "approval".into(),
                     message: short(&title, 30),
-                    detail: short(&st.pending_detail, 55),
+                    // 승인 detail = "도구: 명령/경로"(tool_brief). 디스코드에 표시되므로 넉넉히.
+                    detail: short(&st.pending_detail, 300),
                     hwnd: 0,
                     elapsed_secs: 0,
                     tokens: 0, // 승인 대기 시점엔 아직 집계할 게 없다

@@ -505,10 +505,14 @@ fn discord_body(done: &TaskDone) -> String {
             }
         }
     );
-    // 상세 내용은 넣지 않는다(제목 + 상태 + 시간/토큰만 간결하게).
+    // 완료는 상세 없이 제목만. 승인은 어떤 도구/명령을 쓰려는지(detail="Bash: …")만 표시.
+    let mut embed = serde_json::json!({ "title": title, "color": color });
+    if done.kind == "approval" && !done.detail.trim().is_empty() {
+        embed["description"] = serde_json::Value::String(done.detail.clone());
+    }
     serde_json::json!({
         "username": "DevPet 🐾",
-        "embeds": [{ "title": title, "color": color }]
+        "embeds": [embed]
     })
     .to_string()
 }
