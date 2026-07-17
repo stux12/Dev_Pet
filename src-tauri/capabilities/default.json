@@ -14,6 +14,8 @@
     "core:window:allow-outer-position",
     "core:window:allow-outer-size",
     "core:window:allow-current-monitor",
-    "core:window:allow-available-monitors"
+    "core:window:allow-available-monitors",
+    "updater:default",
+    "process:default"
   ]
 }

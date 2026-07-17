@@ -729,6 +729,8 @@ pub fn run() {
     register_claude_hook(); // CLI 승인 대기 알림용 Notification 훅 설치/등록
     load_discord_webhook(); // 저장된 디스코드 웹훅 URL 복원(재시작·재설치에도 유지)
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build()) // 앱 내 자동 업데이트
+        .plugin(tauri_plugin_process::init()) // 업데이트 후 재시작용
         // 단일 인스턴스: 앱은 항상 1개만. 이미 실행 중이면 두 번째 실행은 기존 창만 보여주고 종료.
         // (가장 먼저 등록되어야 함)
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
