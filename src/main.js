@@ -86,6 +86,7 @@ $("bubble").addEventListener("click", () => {
 // 앱 시작 시 맨 먼저 GitHub Releases 에서 새 버전을 확인한다.
 // 있으면 그 알림 말풍선을 계속 띄워두고(로딩 말풍선이 덮지 않도록 finishScan/beginScan에서
 // pendingUpdate 를 확인), 없으면 정상 로딩(파일 감지)으로 넘어간다.
+const RELEASES_URL = "https://github.com/stux12/Dev_Pet/releases/latest";
 let pendingUpdate = null;
 async function checkUpdate() {
   try {
@@ -114,7 +115,11 @@ $("update-btn").addEventListener("click", async (ev) => {
     const { relaunch } = await import("@tauri-apps/plugin-process");
     await relaunch();
   } catch (e) {
-    showBubble("업데이트 실패:\n" + (e?.message || String(e)), 8000, "warn");
+    // 자동 설치 실패 → 릴리스 페이지를 열어 직접 받도록 안내(막다른 길 방지)
+    showBubble("업데이트에 실패했어요 😥\n릴리스 페이지를 열게요, 거기서 받아주세요", 8000, "warn");
+    try {
+      await invoke("open_url", { url: RELEASES_URL });
+    } catch (_) {}
   }
 });
 
