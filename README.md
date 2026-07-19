@@ -28,7 +28,7 @@ CPU·메모리·디스크 사용률을 펫의 색과 표정으로 표현하고, 
 ### 방법 A — 설치 파일로 실행 (권장, 가장 간단)
 
 릴리스: https://github.com/stux12/Dev_Pet/releases/latest
-1. `DevPet_0.2.15_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
+1. `DevPet_0.2.16_x64_en-US.msi` 를 실행해 설치 (또는 릴리스에서 다운로드)
 2. 시작 메뉴에서 **DevPet** 실행
 
 ### 방법 B — 소스에서 빌드
@@ -52,9 +52,9 @@ npm run tauri build
 | 파일 | 경로 | 용도 |
 |------|------|------|
 | 실행 파일 | `src-tauri/target/release/dev-pet.exe` | 설치 없이 **바로 실행** |
-| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.15_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
+| 설치 파일(MSI) | `src-tauri/target/release/bundle/msi/DevPet_0.2.16_x64_en-US.msi` | 정식 설치 / **다른 PC 배포** |
 
-- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.15_x64_en-US.msi`
+- 예시 전체 경로: `C:\...\Dev_Pet\src-tauri\target\release\bundle\msi\DevPet_0.2.16_x64_en-US.msi`
 - 파일 탐색기 주소창에 `src-tauri\target\release\bundle\msi` 를 붙여넣으면 해당 폴더가 열립니다.
 - ⚠️ `target/` 폴더는 `.gitignore`로 **저장소에는 포함되지 않습니다.** 각자 `npm run tauri build`로 생성하세요.
 - 다른 PC에 배포하려면 **`.msi` 파일 하나만** 넘겨주면 됩니다.
@@ -171,6 +171,9 @@ MIT
 ## 🗒️ 업데이트 이력
 
 > 커밋이 있을 때마다 무엇을 바꿨는지 여기에 간략히 기록합니다. (최신순)
+
+### 2026-07-20 · v0.2.16
+- **복합 명령 승인 오탐 수정** — `cd /path && npm run build`처럼 여러 명령을 이어 붙이면, 이전엔 전체를 통째로 매칭해 `cd`로 시작한다는 이유로 자동승인 규칙(`Bash(npm run *)` 등)에 안 걸려 오탐이 났습니다. 이제 `&&`·`|`·`;`·개행으로 **분해해 각 부분을 검사**하고(따옴표 안은 보존), `cd`·변수할당·읽기 필터(tail·grep 등)는 무해 처리합니다. "항상 허용"한 명령을 복합으로 실행해도 오탐이 크게 줄어듭니다.
 
 ### 2026-07-18 · v0.2.15
 - **업데이트 실패 시 릴리스 페이지 안내** — ⬆️ 자동 업데이트가 실패하면(다운로드·서명 오류 등) 릴리스 페이지를 자동으로 열어 직접 받을 수 있게 했습니다. 막다른 길을 없앴습니다.

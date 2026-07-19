@@ -576,8 +576,90 @@ fn glob_match(pat: &str, s: &str) -> bool {
 
 /// 이 도구 호출이 자동승인(allow 규칙 매칭)되는지 → 그렇다면 승인 프롬프트가 뜨지 않으므로
 /// 승인 대기 추정에서 제외한다.
+///
+/// Bash 는 `cd /p && npm run x` 처럼 복합 명령이 흔한데, Claude Code 는 이를 분해해
+/// 각 부분을 검사한다. 우리도 `&&`/`||`/`|`/`;`/개행으로 분해해, **모든 부분**이
+/// 무해(cd·변수할당·export·echo)하거나 allow 규칙에 매칭될 때만 자동승인으로 본다.
+/// (전체를 통째로 비교하면 `cd ...`로 시작한다는 이유로 매칭에 실패해 오탐이 났었다)
 fn is_auto_approved(rules: &[String], tool: &str, arg: &str) -> bool {
+    if tool.eq_ignore_ascii_case("Bash") {
+        return split_bash_segments(arg).iter().all(|seg| {
+            is_harmless_segment(seg) || rules.iter().any(|r| rule_matches(r, tool, seg))
+        });
+    }
     rules.iter().any(|r| rule_matches(r, tool, arg))
+}
+
+/// Bash 복합 명령을 실행 단위로 분해. 따옴표(`'`/`"`) 안의 구분자(개행·`&&`·`|`·`;`)는
+/// 무시한다 — `git commit -m "여러 줄"` 이나 `"$(cat <<'EOF' … EOF)"` 처럼 따옴표로
+/// 감싼 멀티라인이 잘못 쪼개지지 않게 한다. (중첩 heredoc 등 완벽하진 않은 근사)
+fn split_bash_segments(cmd: &str) -> Vec<String> {
+    let mut segs = Vec::new();
+    let mut cur = String::new();
+    let mut chars = cmd.chars().peekable();
+    let mut quote: Option<char> = None;
+    while let Some(c) = chars.next() {
+        if let Some(q) = quote {
+            cur.push(c);
+            if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' => {
+                quote = Some(c);
+                cur.push(c);
+            }
+            '\n' | ';' => {
+                segs.push(std::mem::take(&mut cur));
+            }
+            '&' if chars.peek() == Some(&'&') => {
+                chars.next();
+                segs.push(std::mem::take(&mut cur));
+            }
+            '|' => {
+                if chars.peek() == Some(&'|') {
+                    chars.next();
+                }
+                segs.push(std::mem::take(&mut cur));
+            }
+            _ => cur.push(c),
+        }
+    }
+    segs.push(cur);
+    segs.into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// 그 자체로는 승인 프롬프트를 유발하지 않는 무해한 셸 구성인지.
+/// cd·변수할당·export·echo, 그리고 리다이렉션(`>`) 없는 읽기 전용 필터(tail·grep 등).
+fn is_harmless_segment(seg: &str) -> bool {
+    let s = seg.trim();
+    if s == "cd" || s.starts_with("cd ") || s.starts_with("export ") || s.starts_with("echo ") {
+        return true;
+    }
+    // 변수 할당: NAME=value (첫 토큰이 식별자=…)
+    if let Some(eq) = s.find('=') {
+        let name = &s[..eq];
+        if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return true;
+        }
+    }
+    // 읽기 전용 필터 명령 (파일을 바꾸지 않음). 단 리다이렉션(`>`)이 있으면 제외.
+    if !s.contains('>') {
+        const READERS: &[&str] = &[
+            "tail", "head", "grep", "wc", "sort", "uniq", "cut", "tr", "cat", "ls", "pwd",
+            "which", "true", "false",
+        ];
+        let first = s.split_whitespace().next().unwrap_or("");
+        if READERS.contains(&first) {
+            return true;
+        }
+    }
+    false
 }
 
 /// content 배열에서 첫 tool_use 의 (도구명, 주요 인자) 추출 (allow 매칭용).
@@ -993,6 +1075,36 @@ mod tests {
         assert!(st2.pending_tool, "allow 안 된 명령은 승인 후보로 남는다");
     }
 
+    /// 복합 명령: cd·변수할당 뒤의 allow 매칭 명령이면 자동승인으로 본다(오탐 방지).
+    #[test]
+    fn compound_command_auto_approved_via_segments() {
+        let rules = vec!["Bash(npm run *)".to_string()];
+        // cd + allow 명령 → 자동승인(제외)
+        assert!(is_auto_approved(&rules, "Bash", "cd /c/proj && npm run build"));
+        // 변수할당 + 여러 줄 + allow 명령
+        assert!(is_auto_approved(
+            &rules,
+            "Bash",
+            "SP=\"/tmp/x\"\ncd /c/proj\nnpm run release"
+        ));
+        // allow 안 된 위험 명령이 섞이면 자동승인이 아니다(승인 대기 유지)
+        assert!(!is_auto_approved(&rules, "Bash", "cd /c/proj && rm -rf /important"));
+        // 단일 allow 명령
+        assert!(is_auto_approved(&rules, "Bash", "npm run tauri build"));
+        assert!(!is_auto_approved(&rules, "Bash", "cargo build"));
+
+        // 따옴표 안의 && / 개행은 쪼개지지 않는다(멀티라인 커밋 등)
+        let r2 = vec!["Bash(git commit *)".to_string(), "Bash(git push *)".to_string()];
+        assert!(is_auto_approved(
+            &r2,
+            "Bash",
+            "git commit -m \"line1 && still in quote\nline2\" && git push origin main"
+        ));
+        // 세그먼트 분해 검증
+        let segs = split_bash_segments("cd /p && echo \"a && b\" | grep x");
+        assert_eq!(segs, vec!["cd /p", "echo \"a && b\"", "grep x"]);
+    }
+
     /// 읽기 도구도 승인 대기 후보다(allow 안 된 Read 는 프로젝트 밖 파일 등 승인이 뜰 수 있음).
     /// 즉시 끝나는 도구는 15초 전에 결과가 와서 실제로는 알림이 안 뜨지만, 후보 판정은 된다.
     #[test]
@@ -1016,7 +1128,7 @@ mod tests {
             &mut st,
             &v(r#"{"type":"assistant","uuid":"u4","timestamp":"2026-07-15T08:00:00.000Z",
                  "entrypoint":"claude-desktop",
-                 "message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}"#),
+                 "message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Bash","input":{"command":"rm -rf build"}}]}}"#),
         );
         assert!(st.pending_tool);
         process_claude_line(
